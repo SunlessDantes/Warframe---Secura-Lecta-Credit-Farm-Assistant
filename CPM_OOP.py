@@ -1,6 +1,9 @@
 import os
 import ctypes
 import sys
+import shutil
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+import pygame
 
 # Ensure local modules in the same directory are found
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -121,6 +124,71 @@ class ConfigEditor(QtWidgets.QDialog):
         self.rois[name] = roi
         self.labels.append(lbl)
 
+class AcolyteConfigDialog(QtWidgets.QDialog):
+    def __init__(self, current_config, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Acolyte Warner Configuration")
+        self.config = current_config
+        layout = QtWidgets.QVBoxLayout(self)
+        
+        # Audio Cue
+        self.check_audio = QtWidgets.QCheckBox("Enable Audio Alert")
+        self.check_audio.setChecked(self.config.get("audio_cue", True))
+        layout.addWidget(self.check_audio)
+
+        # Countdown Duration
+        duration_layout = QtWidgets.QHBoxLayout()
+        duration_layout.addWidget(QtWidgets.QLabel("Countdown Duration (seconds):"))
+        self.spin_duration = QtWidgets.QDoubleSpinBox()
+        self.spin_duration.setRange(1.0, 60.0)
+        self.spin_duration.setSingleStep(0.5)
+        self.spin_duration.setValue(self.config.get("duration", 12.0))
+        duration_layout.addWidget(self.spin_duration)
+        layout.addLayout(duration_layout)
+
+        # Flash Color
+        color_layout = QtWidgets.QHBoxLayout()
+        color_layout.addWidget(QtWidgets.QLabel("Flash Color:"))
+        self.btn_color = QtWidgets.QPushButton()
+        c = self.config.get("color", "#FF0000")
+        self.btn_color.setStyleSheet(f"background-color: {c};")
+        self.btn_color.clicked.connect(self.pick_color)
+        color_layout.addWidget(self.btn_color)
+        layout.addLayout(color_layout)
+
+        # Opacity
+        opacity_layout = QtWidgets.QHBoxLayout()
+        opacity_layout.addWidget(QtWidgets.QLabel("Flash Opacity:"))
+        self.slider_opacity = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.slider_opacity.setRange(10, 100) # 10% to 100%
+        self.slider_opacity.setValue(self.config.get("opacity", 50))
+        self.slider_opacity.valueChanged.connect(lambda v: self.label_opacity.setText(f"{v}%"))
+        opacity_layout.addWidget(self.slider_opacity)
+        self.label_opacity = QtWidgets.QLabel(f"{self.slider_opacity.value()}%")
+        opacity_layout.addWidget(self.label_opacity)
+        layout.addLayout(opacity_layout)
+
+        # OK/Cancel buttons
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def pick_color(self):
+        color = QtWidgets.QColorDialog.getColor(QtGui.QColor(self.btn_color.styleSheet().split(":")[1].strip().rstrip(';')))
+        if color.isValid():
+            self.btn_color.setStyleSheet(f"background-color: {color.name()};")
+
+    def get_config(self):
+        style = self.btn_color.styleSheet()
+        color_hex = style.split(":")[1].strip().rstrip(';')
+        return {
+            "audio_cue": self.check_audio.isChecked(),
+            "duration": self.spin_duration.value(),
+            "color": color_hex,
+            "opacity": self.slider_opacity.value()
+        }
+
 class DraggableNumberOverlay(QtWidgets.QLabel):
     def __init__(self, label_key, color_hex, monitor_info, initial_pos=None, font_size=24, parent=None):
         super().__init__(parent)
@@ -232,6 +300,69 @@ class OverlayConfigDialog(QtWidgets.QDialog):
             new_config[m] = {"show": chk.isChecked(), "color": color}
         return new_config
 
+class AcolyteWarner(QtWidgets.QWidget):
+    def __init__(self, config, monitor_info):
+        super().__init__()
+        self.config = config
+        self.monitor_info = monitor_info
+        
+        self.setWindowFlags(QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowStaysOnTopHint | QtCore.Qt.Tool)
+        self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
+        
+        # Center on primary monitor
+        w, h = 400, 150
+        mon_w, mon_h = self.monitor_info['width'], self.monitor_info['height']
+        mon_l, mon_t = self.monitor_info['left'], self.monitor_info['top']
+        self.setGeometry(mon_l + (mon_w - w) // 2, mon_t + (mon_h - h) // 2, w, h)
+
+        self.label = QtWidgets.QLabel("", self)
+        self.label.setAlignment(QtCore.Qt.AlignCenter)
+        self.label.setStyleSheet("color: white; font-size: 48pt; font-weight: bold;")
+        
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(self.label)
+        
+        self.timer = QtCore.QTimer(self)
+        self.timer.timeout.connect(self.update_tick)
+        
+        self.end_time = 0
+        self.flash_on = False
+        self.hide_time = 0
+
+    def paintEvent(self, event):
+        if self.flash_on:
+            painter = QtGui.QPainter(self)
+            color = QtGui.QColor(self.config.get("color", "#FF0000"))
+            opacity_pct = self.config.get("opacity", 50)
+            color.setAlphaF(opacity_pct / 100.0)
+            painter.fillRect(self.rect(), color)
+
+    def start_warning(self, duration):
+        self.end_time = time.perf_counter() + duration
+        self.hide_time = 0
+        self.flash_on = True
+        self.timer.start(100) # Update 10 times a second
+        self.show()
+        self.raise_()
+
+    def update_tick(self):
+        now = time.perf_counter()
+        if self.hide_time > 0:
+            if now >= self.hide_time:
+                self.timer.stop()
+                self.hide()
+            return
+        remaining = self.end_time - now
+        if remaining > 0:
+            self.label.setText(f"Acolyte in: {remaining:.1f}s")
+            self.flash_on = not self.flash_on
+        else:
+            self.label.setText("ACOLYTE SPAWNED")
+            self.flash_on = True # Solid color on spawn
+            if self.hide_time == 0: # Set hide timer only once
+                self.hide_time = now + 2.0 
+        self.update() # Triggers paintEvent
+
     def load_boxes(self):
         if 'scan_area' in self.data:
             self.add_roi("Scan Area", self.data['scan_area'], 'g')
@@ -304,7 +435,15 @@ class SettingsDialog(QtWidgets.QDialog):
             "CPM": {"show": True, "color": "#FF0000"},
             "KPM": {"show": True, "color": "#FF0000"},
             "Num alive": {"show": True, "color": "#FF0000"},
-            "FPS": {"show": True, "color": "#FF0000"}
+            "FPS": {"show": True, "color": "#FF0000"},
+        }
+        # Default Acolyte Config
+        self.acolyte_config = {
+            "enabled": False,
+            "audio_cue": True,
+            "duration": 12.0,
+            "color": "#FF0000",
+            "opacity": 50
         }
 
         # Output Path UI
@@ -397,6 +536,21 @@ class SettingsDialog(QtWidgets.QDialog):
         self.check_logs.setToolTip("Reads Warframe's EE.log file in real-time to track enemy spawn/death counts.\nThis provides highly accurate, continuous KPM data.")
         layout.addWidget(self.check_logs)
         
+        # Acolyte Warner (only available if log tracking is on)
+        acolyte_group = QtWidgets.QGroupBox("Acolyte Warner")
+        acolyte_layout = QtWidgets.QHBoxLayout()
+        self.check_acolyte = QtWidgets.QCheckBox("Enable")
+        self.check_acolyte.setToolTip("Flashes a warning on-screen when an Acolyte is about to spawn.\nRequires 'Track Enemy data' to be enabled.")
+        self.check_acolyte.toggled.connect(lambda c: self.btn_conf_acolyte.setEnabled(c))
+        acolyte_layout.addWidget(self.check_acolyte)
+        
+        self.btn_conf_acolyte = QtWidgets.QPushButton("Configure...")
+        self.btn_conf_acolyte.setEnabled(False)
+        self.btn_conf_acolyte.clicked.connect(self.open_acolyte_config)
+        acolyte_layout.addWidget(self.btn_conf_acolyte)
+        acolyte_group.setLayout(acolyte_layout)
+        layout.addWidget(acolyte_group)
+
         # FPS Checkbox
         self.check_fps = QtWidgets.QCheckBox("Track FPS (Requires PresentMon.exe)")
         self.check_fps.setChecked(False)
@@ -501,14 +655,93 @@ class SettingsDialog(QtWidgets.QDialog):
         self.btn_reconfig.clicked.connect(self.handle_config_button)
         layout.addWidget(self.btn_reconfig)
 
+        # Import Config Button
+        self.btn_import = QtWidgets.QPushButton("Import Config from Previous Version")
+        self.btn_import.setToolTip("Select the main folder of your previous version to import bounding boxes and settings.")
+        self.btn_import.clicked.connect(self.import_old_config)
+        layout.addWidget(self.btn_import)
+
         self.setLayout(layout)
+
+    def open_acolyte_config(self):
+        dlg = AcolyteConfigDialog(self.acolyte_config, self)
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            self.acolyte_config = dlg.get_config()
 
     def open_overlay_config(self):
         dlg = OverlayConfigDialog(self.overlay_config, self)
         if dlg.exec_() == QtWidgets.QDialog.Accepted:
             self.overlay_config = dlg.get_config()
 
+    def import_old_config(self):
+        src_dir = QtWidgets.QFileDialog.getExistingDirectory(self, "Select Previous Version Folder")
+        if not src_dir:
+            return
+
+        # Smart Search: Check root, then check standard subfolders
+        candidates = [
+            src_dir,
+            os.path.join(src_dir, "python_and_required_packages", "LECTA_SCRIPTS"),
+            os.path.join(src_dir, "Source")
+        ]
+        
+        real_src = None
+        for d in candidates:
+            if os.path.exists(os.path.join(d, "bbox_config_solo.json")) or \
+               os.path.exists(os.path.join(d, "bbox_config_duo.json")):
+                real_src = d
+                break
+        
+        if not real_src:
+             QtWidgets.QMessageBox.warning(self, "Config Not Found", 
+                                           "Could not find configuration files in the selected folder.\n"
+                                           "Tried looking in root and 'python_and_required_packages/LECTA_SCRIPTS'.")
+             return
+
+        files_to_copy = [
+            "bbox_config_solo.json",
+            "bbox_config_duo.json",
+            "last_run_settings.json",
+            "path_config.json",
+            "setup_screenshot_solo.png",
+            "setup_screenshot_duo.png"
+        ]
+        
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        count = 0
+        
+        for filename in files_to_copy:
+            s = os.path.join(real_src, filename)
+            d = os.path.join(current_dir, filename)
+            if os.path.exists(s):
+                try:
+                    shutil.copy2(s, d)
+                    count += 1
+                except Exception: pass
+
+        if count > 0:
+            QtWidgets.QMessageBox.information(self, "Import Successful", f"Imported {count} files.\nSettings will reload.")
+            # Reload settings immediately
+            self.check_load_prev.setEnabled(True)
+            self.check_load_prev.setText("Load Last Used Settings")
+            self.check_load_prev.setChecked(True)
+            self.load_previous_settings(True)
+            
+            # Reload path config
+            if os.path.exists(self.path_config_file):
+                try:
+                    with open(self.path_config_file, 'r') as f:
+                        new_path = json.load(f).get("output_path")
+                        if new_path:
+                            self.line_path.setText(new_path)
+                except: pass
+        else:
+            QtWidgets.QMessageBox.warning(self, "Import Failed", "Found the folder but no valid config files were inside.")
+
     def update_rate_state(self):
+        log_tracking_enabled = self.check_logs.isChecked()
+        self.check_acolyte.setEnabled(log_tracking_enabled)
+        self.btn_conf_acolyte.setEnabled(log_tracking_enabled and self.check_acolyte.isChecked())
         enabled = self.check_logs.isChecked() or self.check_fps.isChecked()
         self.log_rate_container.setEnabled(enabled)
 
@@ -690,6 +923,10 @@ class SettingsDialog(QtWidgets.QDialog):
             self.check_logs.setChecked(data.get("track_logs", False))
             self.check_fps.setChecked(data.get("track_fps", False))
             self.check_overlay.setChecked(data.get("use_overlay", False))
+            self.check_acolyte.setChecked(data.get("acolyte_warner_enabled", False))
+            if "acolyte_config" in data:
+                self.acolyte_config = data["acolyte_config"]
+
             if "overlay_config" in data:
                 self.overlay_config = data["overlay_config"]
             self.line_pb.setText(data.get("pb_file", ""))
@@ -723,6 +960,8 @@ class SettingsDialog(QtWidgets.QDialog):
             "track_fps": self.check_fps.isChecked(),
             "use_overlay": self.check_overlay.isChecked(),
             "overlay_config": self.overlay_config,
+            "acolyte_warner_enabled": self.check_acolyte.isChecked(),
+            "acolyte_config": self.acolyte_config,
             "data_recording_rate": self.combo_rec_rate.currentData(),
             "log_update_rate": self.combo_log_rate.currentData(),
             "output_path": self.line_path.text(),
@@ -775,6 +1014,7 @@ class WarframeTracker(QtCore.QObject):
         self.track_logs = self.settings.get('track_logs', False)
         self.track_fps = self.settings.get('track_fps', False)
         self.log_update_rate = self.settings.get('log_update_rate', 0.1)
+        self.acolyte_warner = None
         self.data_recording_interval_ms = self.settings.get('data_recording_rate', 100)
         self.show_pb_live = self.settings.get('show_pb_live', True)
         self.pb_data = None # DataFrame for Personal Best
@@ -977,6 +1217,12 @@ class WarframeTracker(QtCore.QObject):
             if self.track_logs: create_ov("Num alive")
             if self.track_fps: create_ov("FPS")
 
+        # --- Acolyte Warner Initialization ---
+        if self.track_logs and self.settings.get("acolyte_warner_enabled", False):
+            acolyte_cfg = self.settings.get("acolyte_config", {})
+            self.acolyte_warner = AcolyteWarner(acolyte_cfg, self.monitor)
+            print("[Init] Acolyte Warner enabled and initialized.")
+
         # Data Structures Initialization
         if self.track_logs:
             self.enemy_data = {"time": [], "live": [], "spawned": []}
@@ -994,6 +1240,14 @@ class WarframeTracker(QtCore.QObject):
         self.data_updated.connect(self.update_plot)
         self.request_overlay_toggle.connect(self.toggle_overlay)
         self.setup_hotkeys()
+        
+        # --- Controller Setup (PS4 L3 -> Tab) ---
+        self.joystick = None
+        self.l3_pressed = False
+        self.init_controller()
+        self.controller_timer = QtCore.QTimer()
+        self.controller_timer.timeout.connect(self.poll_controller)
+        self.controller_timer.start(16) # Poll at ~60Hz
 
     def setup_hotkeys(self):
         key.add_hotkey('f8', self.start_run)
@@ -1002,6 +1256,45 @@ class WarframeTracker(QtCore.QObject):
         key.on_release_key('tab', self.on_tab_release)
         key.add_hotkey('f9', self.request_overlay_toggle.emit)
         key.add_hotkey('f10', self.request_run_end.emit)
+
+    def init_controller(self):
+        try:
+            pygame.init()
+            pygame.joystick.init()
+            if pygame.joystick.get_count() > 0:
+                # Use the first detected controller
+                self.joystick = pygame.joystick.Joystick(0)
+                self.joystick.init()
+                print(f"[Controller] Connected: {self.joystick.get_name()}")
+                print("[Controller] L3 (Left Stick Click) is mapped to TAB.")
+            else:
+                print("[Controller] No controller detected.")
+        except Exception as e:
+            print(f"[Controller] Error initializing: {e}")
+
+    def poll_controller(self):
+        if not self.joystick:
+            return
+        
+        try:
+            pygame.event.pump() # Process internal event queue
+            
+            # PS4 L3 is typically Button 10. 
+            # (Note: Xbox controllers use Button 8 for Left Stick Click)
+            # We check bounds to be safe.
+            btn_index = 10 
+            if self.joystick.get_numbuttons() > btn_index:
+                is_pressed = self.joystick.get_button(btn_index)
+                
+                if is_pressed and not self.l3_pressed:
+                    self.l3_pressed = True
+                    key.press('tab') # Simulate holding TAB
+                elif not is_pressed and self.l3_pressed:
+                    self.l3_pressed = False
+                    key.release('tab') # Simulate releasing TAB
+        except Exception as e:
+            # print(f"[Controller] Polling error: {e}")
+            pass
 
     def _start_log_timer_slot(self):
         self.log_timer.start(self.data_recording_interval_ms) 
@@ -1479,6 +1772,17 @@ class WarframeTracker(QtCore.QObject):
         if self.track_logs and self.log_reader:
             live, spawned = self.log_reader.get_stats()
         
+        # Check for Acolyte Warning
+        if self.track_logs and self.log_reader and self.acolyte_warner:
+            if self.log_reader.check_and_clear_acolyte_warning():
+                print("[Tracker] Triggering Acolyte Warner Popup!")
+                acolyte_cfg = self.settings.get("acolyte_config", {})
+                if acolyte_cfg.get("audio_cue", True):
+                    # Use a distinct sound for the acolyte
+                    winsound.Beep(1500, 500)
+                duration = acolyte_cfg.get("duration", 12.0)
+                self.acolyte_warner.start_warning(duration)
+
         kills = 0
         kpm = 0.0
         
@@ -1599,6 +1903,9 @@ class WarframeTracker(QtCore.QObject):
         # Close Overlays
         for ov in self.number_overlays.values():
             ov.close()
+        if self.acolyte_warner:
+            self.acolyte_warner.timer.stop()
+            self.acolyte_warner.close()
 
         print("\n[End] Stopping trackers and saving data...")
         save_path = os.path.join(self.run_output_path, "master_run_log.csv")

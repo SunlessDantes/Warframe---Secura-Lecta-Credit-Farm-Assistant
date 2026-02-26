@@ -8,3 +8,4 @@ pyqtgraph
 PyQt5
 matplotlib
 screeninfo
+pygame
