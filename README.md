@@ -59,6 +59,10 @@ If you have Python installed and want to run the raw scripts/edit the code yours
 2. It will then launch the **Bounding Box Setup**.
 3. Follow the on-screen instructions to draw boxes around the "Credits" text and the 5 possible credit values in the Mission Progress screen. (You can draw bad bbox's since there is a bbox editor which is more user friendly)
 
+* Example Bounding Box Setup:
+![alt text](bounding_box_in_game_example.png)
+
+
 ## Requirements
 - Warframe must be running on the **Primary Monitor**.
 - Interface Scale in Warframe should be consistent (default 100 recommended).
