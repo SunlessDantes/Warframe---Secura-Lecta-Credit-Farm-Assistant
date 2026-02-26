@@ -14,8 +14,8 @@ A Python-based overlay and tracker for Warframe that monitors Credits Per Minute
 ---
 
 ## Example
-<a href="https://www.youtube.com/watch?v=7BJbUHTeVs8" target="_blank">
-  <img src="https://img.youtube.com/vi/7BJbUHTeVs8/maxresdefault.jpg" alt="Warframe Lecta Tracker Demo" width="100%" />
+<a href="https://www.youtube.com/watch?v=" target="_blank">
+  <img src="https://img.youtube.com/vi//maxresdefault.jpg" alt="Warframe Lecta Tracker Demo" width="100%" />
 </a>
 
 *Click the image above to watch the demo video.*
