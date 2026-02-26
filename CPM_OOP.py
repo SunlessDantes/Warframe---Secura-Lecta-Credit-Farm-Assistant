@@ -196,7 +196,7 @@ class OverlayConfigDialog(QtWidgets.QDialog):
             grid.addWidget(QtWidgets.QLabel(f"<b>{h}</b>"), 0, col)
 
         self.widgets = {}
-        metrics = ["CPM", "KPM", "Live", "FPS"]
+        metrics = ["CPM", "KPM", "Num alive", "FPS"]
         
         for i, m in enumerate(metrics):
             row = i + 1
@@ -303,7 +303,7 @@ class SettingsDialog(QtWidgets.QDialog):
         self.overlay_config = {
             "CPM": {"show": True, "color": "#FF0000"},
             "KPM": {"show": True, "color": "#FF0000"},
-            "Live": {"show": True, "color": "#FF0000"},
+            "Num alive": {"show": True, "color": "#FF0000"},
             "FPS": {"show": True, "color": "#FF0000"}
         }
 
@@ -551,7 +551,7 @@ class SettingsDialog(QtWidgets.QDialog):
                             json.dump(self.get_settings(), f, indent=4)
                     except Exception: pass
                     # Only this line is needed:
-                    ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, os.path.abspath(__file__), os.getcwd(), 1)
+                    ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, f'"{os.path.abspath(__file__)}"', os.getcwd(), 1)
                     sys.exit(0)
                 else:
                     self.check_fps.setChecked(False)
@@ -941,7 +941,7 @@ class WarframeTracker(QtCore.QObject):
                 self.plot_live = p
                 p.setTitle("Amount of alive enemies", size="16pt")
                 p.setLabel('left', 'Count')
-                self.curve_live = p.plot(pen='c', name='Live')
+                self.curve_live = p.plot(pen='c', name='num alive')
                 self.curve_live_pb = p.plot(pen=pg.mkPen('c', style=QtCore.Qt.DotLine))
 
             elif p_type == 'fps':
@@ -956,7 +956,7 @@ class WarframeTracker(QtCore.QObject):
         if self.use_overlay:
             ov_cfg = self.settings.get("overlay_config", {})
             # Define defaults if missing
-            defaults = {"CPM": "#FF0000", "KPM": "#FF0000", "Live": "#FF0000", "FPS": "#FF0000"}
+            defaults = {"CPM": "#FF0000", "KPM": "#FF0000", "Num alive": "#FF0000", "FPS": "#FF0000"}
             
             # Start positions (Top-Left of Main Monitor)
             start_x = self.monitor["left"] + 20
@@ -974,7 +974,7 @@ class WarframeTracker(QtCore.QObject):
 
             if self.track_credits: create_ov("CPM")
             if self.track_kills: create_ov("KPM")
-            if self.track_logs: create_ov("Live")
+            if self.track_logs: create_ov("Num alive")
             if self.track_fps: create_ov("FPS")
 
         # Data Structures Initialization
@@ -1100,6 +1100,9 @@ class WarframeTracker(QtCore.QObject):
             print(f"[PB] Error loading CSV: {e}")
 
     def start_run(self):
+        # Ensure any previous run state is cleared
+        self.start_time = None
+        
         if self.start_time is not None:
             print("\n[Run] Run is already in progress. Press F10 to save and end the current run first.")
             return
@@ -1225,6 +1228,12 @@ class WarframeTracker(QtCore.QObject):
         self.tab_held = False
 
     def tab_action(self):
+        try:
+            self._tab_action_unsafe()
+        except Exception as e:
+            print(f"[Tab Action] Error: {e}")
+
+    def _tab_action_unsafe(self):
         if self.start_time is None:
             print("[Action] Ignored: Press F8 to start the run timer first!")
             return
@@ -1423,23 +1432,35 @@ class WarframeTracker(QtCore.QObject):
                 # Return zeros so the script doesn't append bad data or crash
                 return 0, 0.0, time.perf_counter() - self.start_time
         
-        # Extract the highest confidence match
-        best_match = max(scan, key=lambda x: x[2])
-        result, confidence = best_match[1], best_match[2] 
-        
-        num = int(result.replace(",", "")) 
-        time_cp = time.perf_counter() - self.start_time
-        return num, confidence, time_cp 
+        try:
+            # Extract the highest confidence match
+            best_match = max(scan, key=lambda x: x[2])
+            result, confidence = best_match[1], best_match[2] 
+            
+            num = int(result.replace(",", "")) 
+            time_cp = time.perf_counter() - self.start_time
+            return num, confidence, time_cp 
+        except Exception as e:
+            print(f"[OCR] Parse Error: {e}")
+            return 0, 0.0, time.perf_counter() - self.start_time
 
 
     def update_plot(self):
         #triggered by the QTimer. It safely pushes data to the window.
         if len(self.current_run_time) > 0:
+            # Safe slicing to ensure lengths match (Fixes race condition crash)
+            n = len(self.current_run_time)
             if self.track_credits:
-                self.curve_cpm.setData(self.current_run_time, self.cpm)
-                self.curve_creds.setData(self.current_run_time, self.creds)
+                n_cpm = len(self.cpm)
+                n_creds = len(self.creds)
+                limit = min(n, n_cpm, n_creds)
+                self.curve_cpm.setData(self.current_run_time[:limit], self.cpm[:limit])
+                self.curve_creds.setData(self.current_run_time[:limit], self.creds[:limit])
+                
             if self.track_kills and not self.track_logs:
-                self.curve_kpm.setData(self.current_run_time, self.kpm)
+                n_kpm = len(self.kpm)
+                limit = min(n, n_kpm)
+                self.curve_kpm.setData(self.current_run_time[:limit], self.kpm[:limit])
 
     def update_log_data(self):
         if self.start_time is None:
@@ -1507,7 +1528,7 @@ class WarframeTracker(QtCore.QObject):
         self.pending_event = "" # Reset event after writing
 
             # Update Overlays (Log Data)
-        if "Live" in self.number_overlays: self.number_overlays["Live"].update_value(live)
+        if "Num alive" in self.number_overlays: self.number_overlays["Num alive"].update_value(live)
         if "KPM" in self.number_overlays and self.track_kills: self.number_overlays["KPM"].update_value(int(kpm))
         if "FPS" in self.number_overlays: self.number_overlays["FPS"].update_value(self.state_fps)
 
@@ -1559,6 +1580,9 @@ class WarframeTracker(QtCore.QObject):
             self.last_plot_update = current_perf_time
 
     def run_end(self):
+        # Stop accepting new data immediately to prevent race conditions
+        self.start_time = None
+        
         if not self.run_output_path:
             output_dir = os.path.join(os.getcwd(), "OUTPUT")
             os.makedirs(output_dir, exist_ok=True)
@@ -1686,7 +1710,6 @@ class WarframeTracker(QtCore.QObject):
             print(f"[End] Error generating plots: {e}")
 
         # Reset run state so a new run can be started
-        self.start_time = None
         self.run_output_path = None
         print("[End] Run finished. Ready for new run.\n")
 

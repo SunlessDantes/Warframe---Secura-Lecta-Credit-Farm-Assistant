@@ -46,12 +46,17 @@ If you have Python installed and want to run the raw scripts/edit the code yours
 | **F10** | Save Data & End Run |
 
 ## First Time Setup
-1. When you first launch the tracker, it will ask you to select a folder to save your run data.
+1. When you first launch the tracker, it will ask you to select a folder to save your run data. In that Folder you will find data of the run `master_run_log.csv` and plots
 2. It will then launch the **Bounding Box Setup**.
-3. Follow the on-screen instructions to draw boxes around the "Credits" text and the 5 possible credit values in the Mission Progress screen.
+3. Follow the on-screen instructions to draw boxes around the "Credits" text and the 5 possible credit values in the Mission Progress screen. (You can draw bad bbox's since there is a bbox editor which is more user friendly)
 
 ## Requirements
 - Warframe must be running on the **Primary Monitor**.
 - Interface Scale in Warframe should be consistent (default 100 recommended).
 - **PresentMon.exe** must be in the folder for FPS tracking.
   - *Note:* This project uses **PresentMon v1.6.0** (Legacy). Newer versions of Intel PresentMon have changed their output format and command-line arguments, which are not compatible with this tracker's parsing logic. The correct version is included in the release.
+
+
+## General Notes
+* `EE.log` is only read from, no injection is happening. You can uncheck that box and the script will not read the data.
+* Tracking the FPS requires `PresentMon.exe` to be run as Administrator hence you will be asked to rerun as Administrator.
