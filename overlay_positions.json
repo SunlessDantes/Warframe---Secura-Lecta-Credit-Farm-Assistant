@@ -1,0 +1,22 @@
+{
+    "CPM": {
+        "x": 620,
+        "y": 161,
+        "font_size": 24
+    },
+    "KPM": {
+        "x": 20,
+        "y": 90,
+        "font_size": 24
+    },
+    "Num alive": {
+        "x": 20,
+        "y": 130,
+        "font_size": 24
+    },
+    "acolyte": {
+        "x": 1080,
+        "y": 645,
+        "font_size": 48
+    }
+}

@@ -23,6 +23,7 @@ import mss #pip install mss
 import keyboard as key #pip install keyboard
 import numpy as np #pip install numpy
 import pydirectinput #pip install pydirectinput
+pydirectinput.FAILSAFE = False
 import pandas as pd #pip install pandas
 import pyqtgraph as pg #pip install pyqtgraph and pip install pyQt5
 import matplotlib.pyplot as plt #pip install matplotlib
@@ -138,16 +139,6 @@ class AcolyteConfigDialog(QtWidgets.QDialog):
         self.check_audio.setChecked(self.config.get("audio_cue", True))
         layout.addWidget(self.check_audio)
 
-        # Countdown Duration
-        duration_layout = QtWidgets.QHBoxLayout()
-        duration_layout.addWidget(QtWidgets.QLabel("Countdown Duration (seconds):"))
-        self.spin_duration = QtWidgets.QDoubleSpinBox()
-        self.spin_duration.setRange(1.0, 60.0)
-        self.spin_duration.setSingleStep(0.5)
-        self.spin_duration.setValue(self.config.get("duration", 12.0))
-        duration_layout.addWidget(self.spin_duration)
-        layout.addLayout(duration_layout)
-
         # Flash Color
         color_layout = QtWidgets.QHBoxLayout()
         color_layout.addWidget(QtWidgets.QLabel("Flash Color:"))
@@ -186,7 +177,6 @@ class AcolyteConfigDialog(QtWidgets.QDialog):
         color_hex = style.split(":")[1].strip().rstrip(';')
         return {
             "audio_cue": self.check_audio.isChecked(),
-            "duration": self.spin_duration.value(),
             "color": color_hex,
             "opacity": self.slider_opacity.value()
         }
@@ -302,34 +292,42 @@ class OverlayConfigDialog(QtWidgets.QDialog):
             new_config[m] = {"show": chk.isChecked(), "color": color}
         return new_config
 
-class AcolyteWarner(QtWidgets.QWidget):
-    def __init__(self, config, monitor_info):
-        super().__init__()
+class AcolyteWarner(QtWidgets.QLabel):
+    def __init__(self, config, monitor_info, initial_pos=None, font_size=48, parent=None):
+        super().__init__(parent)
         self.config = config
         self.monitor_info = monitor_info
+        self.font_size = font_size
+        self.drag_pos = None
+        self.acolyte_name = "Acolyte"
         
         self.setWindowFlags(QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowStaysOnTopHint | QtCore.Qt.Tool)
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
         
-        # Center on primary monitor
-        w, h = 400, 150
-        mon_w, mon_h = self.monitor_info['width'], self.monitor_info['height']
-        mon_l, mon_t = self.monitor_info['left'], self.monitor_info['top']
-        self.setGeometry(mon_l + (mon_w - w) // 2, mon_t + (mon_h - h) // 2, w, h)
-
-        self.label = QtWidgets.QLabel("", self)
-        self.label.setAlignment(QtCore.Qt.AlignCenter)
-        self.label.setStyleSheet("color: white; font-size: 48pt; font-weight: bold;")
-        
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.addWidget(self.label)
+        # Flashing background is handled by paintEvent
+        self.flash_on = False
         
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self.update_tick)
-        
         self.end_time = 0
-        self.flash_on = False
-        self.hide_time = 0
+
+        self.update_style()
+        self.adjustSize()
+        self.hide() # Hidden by default
+
+        if initial_pos:
+            self.move(initial_pos)
+        else:
+            # Default to center of screen if no position saved
+            w, h = 400, 150
+            mon_w, mon_h = self.monitor_info['width'], self.monitor_info['height']
+            mon_l, mon_t = self.monitor_info['left'], self.monitor_info['top']
+            self.move(mon_l + (mon_w - w) // 2, mon_t + (mon_h - h) // 2)
+
+    def update_style(self):
+        self.setStyleSheet(f"color: white; font-weight: bold; font-family: Arial;")
+        self.setFont(QtGui.QFont("Arial", self.font_size))
+        self.adjustSize()
 
     def paintEvent(self, event):
         if self.flash_on:
@@ -338,8 +336,11 @@ class AcolyteWarner(QtWidgets.QWidget):
             opacity_pct = self.config.get("opacity", 50)
             color.setAlphaF(opacity_pct / 100.0)
             painter.fillRect(self.rect(), color)
+        # Let the default QLabel paintEvent handle the text on top
+        super().paintEvent(event)
 
-    def start_warning(self, duration):
+    def start_warning(self, name, duration):
+        self.acolyte_name = name
         self.end_time = time.perf_counter() + duration
         self.hide_time = 0
         self.flash_on = True
@@ -349,22 +350,53 @@ class AcolyteWarner(QtWidgets.QWidget):
 
     def update_tick(self):
         now = time.perf_counter()
-        if self.hide_time > 0:
-            if now >= self.hide_time:
-                self.timer.stop()
-                self.hide()
-            return
         remaining = self.end_time - now
-        if remaining > 0:
-            self.label.setText(f"Acolyte in: {remaining:.1f}s")
-            self.flash_on = not self.flash_on
-        else:
-            self.label.setText("ACOLYTE SPAWNED")
-            self.flash_on = True # Solid color on spawn
-            if self.hide_time == 0: # Set hide timer only once
-                self.hide_time = now + 2.0 
-        self.update() # Triggers paintEvent
 
+        if remaining > 0:
+            self.setText(f"{self.acolyte_name} in: {remaining:.1f}s")
+            self.flash_on = not self.flash_on
+            self.adjustSize()
+            self.update() # Triggers paintEvent
+        else:
+            self.timer.stop()
+            self.hide()
+
+    def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton:
+            self.drag_pos = event.globalPos() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == QtCore.Qt.LeftButton and self.drag_pos:
+            desired_pos = event.globalPos() - self.drag_pos
+            
+            x = max(self.monitor_info["left"], min(desired_pos.x(), self.monitor_info["left"] + self.monitor_info["width"] - self.width()))
+            y = max(self.monitor_info["top"], min(desired_pos.y(), self.monitor_info["top"] + self.monitor_info["height"] - self.height()))
+            
+            self.move(x, y)
+            event.accept()
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if delta > 0:
+            self.font_size += 4
+        else:
+            self.font_size = max(12, self.font_size - 4)
+        self.update_style()
+
+    def show_preview(self):
+        """Shows the overlay for positioning, without flashing."""
+        self.timer.stop() # Ensure no flashing is happening
+        self.setText("Acolyte Warner\n(Drag & Scroll)")
+        self.flash_on = True # Solid background
+        self.show()
+        self.adjustSize()
+        self.raise_()
+
+    def hide_preview(self):
+        """Hides the positioning preview."""
+        self.flash_on = False
+        self.hide()
     def load_boxes(self):
         if 'scan_area' in self.data:
             self.add_roi("Scan Area", self.data['scan_area'], 'g')
@@ -441,9 +473,7 @@ class SettingsDialog(QtWidgets.QDialog):
         }
         # Default Acolyte Config
         self.acolyte_config = {
-            "enabled": False,
             "audio_cue": True,
-            "duration": 12.0,
             "color": "#FF0000",
             "opacity": 50
         }
@@ -1017,6 +1047,7 @@ class WarframeTracker(QtCore.QObject):
         self.track_fps = self.settings.get('track_fps', False)
         self.log_update_rate = self.settings.get('log_update_rate', 0.1)
         self.acolyte_warner = None
+        self.overlay_positions_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "overlay_positions.json")
         self.data_recording_interval_ms = self.settings.get('data_recording_rate', 100)
         self.show_pb_live = self.settings.get('show_pb_live', True)
         self.pb_data = None # DataFrame for Personal Best
@@ -1221,9 +1252,20 @@ class WarframeTracker(QtCore.QObject):
 
         # --- Acolyte Warner Initialization ---
         if self.track_logs and self.settings.get("acolyte_warner_enabled", False):
+            # Load position from dedicated file
+            acolyte_pos = None
+            acolyte_font_size = 48
+            if os.path.exists(self.overlay_positions_file):
+                with open(self.overlay_positions_file, 'r') as f:
+                    positions = json.load(f)
+                    if 'acolyte' in positions:
+                        acolyte_pos = QtCore.QPoint(positions['acolyte']['x'], positions['acolyte']['y'])
+                        acolyte_font_size = positions['acolyte'].get('font_size', 48)
+
             acolyte_cfg = self.settings.get("acolyte_config", {})
-            self.acolyte_warner = AcolyteWarner(acolyte_cfg, self.monitor)
+            self.acolyte_warner = AcolyteWarner(acolyte_cfg, self.monitor, acolyte_pos, acolyte_font_size)
             print("[Init] Acolyte Warner enabled and initialized.")
+            self.acolyte_warner.show_preview()
 
         # Data Structures Initialization
         if self.track_logs:
@@ -1327,6 +1369,8 @@ class WarframeTracker(QtCore.QObject):
         if self.overlay and self.overlay.isVisible():
             self.overlay.close()
             self.overlay = None
+            if self.acolyte_warner:
+                self.acolyte_warner.hide_preview()
             return
 
         mx = self.monitor['left']
@@ -1348,6 +1392,9 @@ class WarframeTracker(QtCore.QObject):
 
         self.overlay = OverlayWindow((mx, my, self.monitor['width'], self.monitor['height']), boxes)
         self.overlay.show()
+
+        if self.acolyte_warner:
+            self.acolyte_warner.show_preview()
 
     def load_config(self):
         try:
@@ -1431,6 +1478,10 @@ class WarframeTracker(QtCore.QObject):
         # Reset Master Log
         self.master_log = []
         self.state_credits = 0
+        
+        # Hide Acolyte Warner preview if it's visible
+        if self.acolyte_warner:
+            self.acolyte_warner.hide_preview()
         self.state_cpm = 0
         self.state_kills = 0
         self.state_kpm = 0
@@ -1790,14 +1841,15 @@ class WarframeTracker(QtCore.QObject):
         
         # Check for Acolyte Warning
         if self.track_logs and self.log_reader and self.acolyte_warner:
-            if self.log_reader.check_and_clear_acolyte_warning():
-                print("[Tracker] Triggering Acolyte Warner Popup!")
+            acolyte_info = self.log_reader.check_and_clear_acolyte_warning()
+            if acolyte_info:
+                name, duration = acolyte_info
+                print(f"[Tracker] Triggering Acolyte Warner for {name} ({duration}s)!")
                 acolyte_cfg = self.settings.get("acolyte_config", {})
                 if acolyte_cfg.get("audio_cue", True):
                     # Use a distinct sound for the acolyte
                     winsound.Beep(1500, 500)
-                duration = acolyte_cfg.get("duration", 12.0)
-                self.acolyte_warner.start_warning(duration)
+                self.acolyte_warner.start_warning(name, duration)
 
         kills = 0
         kpm = 0.0
@@ -1922,6 +1974,25 @@ class WarframeTracker(QtCore.QObject):
         if self.acolyte_warner:
             self.acolyte_warner.timer.stop()
             self.acolyte_warner.close()
+        
+        # Save Overlay Positions
+        try:
+            positions_to_save = {}
+            for key, ov in self.number_overlays.items():
+                pos = ov.pos()
+                positions_to_save[key] = {'x': pos.x(), 'y': pos.y(), 'font_size': ov.font_size}
+            
+            if self.acolyte_warner:
+                pos = self.acolyte_warner.pos()
+                positions_to_save['acolyte'] = {'x': pos.x(), 'y': pos.y(), 'font_size': self.acolyte_warner.font_size}
+
+            if positions_to_save:
+                with open(self.overlay_positions_file, 'w') as f:
+                    json.dump(positions_to_save, f, indent=4)
+                print("[End] Overlay positions saved.")
+
+        except Exception as e:
+            print(f"[End] Error saving overlay positions: {e}")
 
         print("\n[End] Stopping trackers and saving data...")
         save_path = os.path.join(self.run_output_path, "master_run_log.csv")

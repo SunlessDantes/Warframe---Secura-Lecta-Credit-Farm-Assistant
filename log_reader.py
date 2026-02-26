@@ -3,6 +3,15 @@ import re
 import os
 import threading
 
+ACOLYTE_MAP = {
+    "Duellist": {"name": "Violence", "duration": 5.1},
+    "Rogue":    {"name": "Mania",    "duration": 5.1},
+    "Control":  {"name": "Torment",  "duration": 5.1},
+    "Heavy":    {"name": "Malice",   "duration": 5.1},
+}
+SCREAM_ACOLYTE_NAME = "Acolyte" # Generic for Misery/Angst
+SCREAM_DURATION = 11.5
+
 class LogReader:
     def __init__(self, log_path):
         self.log_path = log_path
@@ -10,14 +19,16 @@ class LogReader:
         self.total_spawned = 0
         self.running = False
         self.thread = None
-        self.acolyte_warning_triggered = False # Added this line
+        self.triggered_acolytes = [] # Changed from bool to list
+        self.lock = threading.Lock() # For thread-safe list access
         
         # Regex to capture numbers after 'Live' and 'Spawned'
         # Example: OnAgentCreated /Npc/Lancer Live 31 Spawned 53 Ticking 31
         self.live_pattern = re.compile(r"Live\s+(\d+)")
         self.spawned_pattern = re.compile(r"Spawned\s+(\d+)")
-        self.acolyte_pre_warn_pattern = re.compile(r"ScreamDebuffAttachProj") # This line was already present
 
+        self.acolyte_taunt_pattern = re.compile(r"/Lotus/Sounds/Dialog/Taunts/Acolytes/(?P<tag>Duellist|Rogue|Control|Heavy)AcolyteTaunt")
+        self.acolyte_scream_pattern = re.compile(r"ScreamDebuffAttachProj")
     def start(self):
         """Starts the monitoring thread."""
         if self.thread is not None and self.thread.is_alive():
@@ -67,10 +78,22 @@ class LogReader:
             self.running = False
 
     def _process_line(self, line):
-        # Check for Acolyte Warning (Independent check)
-        if self.acolyte_pre_warn_pattern.search(line):
-            print(f"[LogReader] ACOLYTE WARNING DETECTED: {line.strip()}")
-            self.acolyte_warning_triggered = True
+        # Acolyte Checks first
+        taunt_match = self.acolyte_taunt_pattern.search(line)
+        if taunt_match:
+            tag = taunt_match.group("tag")
+            if tag in ACOLYTE_MAP:
+                acolyte = ACOLYTE_MAP[tag]
+                print(f"[LogReader] ACOLYTE WARNING DETECTED: {acolyte['name']}")
+                with self.lock:
+                    self.triggered_acolytes.append((acolyte['name'], acolyte['duration']))
+                return # Don't process other things on this line
+
+        if self.acolyte_scream_pattern.search(line):
+            print(f"[LogReader] ACOLYTE WARNING DETECTED: {SCREAM_ACOLYTE_NAME} (Scream)")
+            with self.lock:
+                self.triggered_acolytes.append((SCREAM_ACOLYTE_NAME, SCREAM_DURATION))
+            return
 
         if "OnAgentCreated" in line:
             live_match = self.live_pattern.search(line)
@@ -85,9 +108,9 @@ class LogReader:
         """Returns a tuple (live_enemies, total_spawned)."""
         return self.live_enemies, self.total_spawned
     
-    def check_and_clear_acolyte_warning(self): # Added this method
-        """Checks if the acolyte pre-warning has been triggered and resets it."""
-        triggered = self.acolyte_warning_triggered
-        if triggered:
-            self.acolyte_warning_triggered = False
-        return triggered
+    def check_and_clear_acolyte_warning(self):
+        """Pops one acolyte warning from the queue if available."""
+        with self.lock:
+            if self.triggered_acolytes:
+                return self.triggered_acolytes.pop(0)
+        return None
