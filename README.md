@@ -12,6 +12,14 @@ A Python-based overlay and tracker for Warframe that monitors Credits Per Minute
 
 ---
 
+## Example
+[![Watch the video](https://img.youtube.com/vi/7BJbUHTeVs8/hqdefault.jpg)](https://www.youtube.com/embed/<VIDEO_ID>)
+https://www.youtube.com/watch?v=7BJbUHTeVs8
+[<img src="https://img.youtube.com/vi/7BJbUHTeVs8/hqdefault.jpg" width="600" height="300"
+/>](https://www.youtube.com/embed/7BJbUHTeVs8)
+
+
+
 ## How to Download & Run
 
 ### Option 1: Embeddable folder for easy use
