@@ -46,16 +46,6 @@ if exist "%SUB_DIR%\python.exe" (
 if not exist "easyocr_models" mkdir "easyocr_models"
 set "EASYOCR_MODULE_PATH=%~dp0easyocr_models"
 
-:: --- First Time Setup Check ---
-if not exist "%SCRIPT_DIR%\bbox_config_solo.json" (
-    if not exist "%SCRIPT_DIR%\bbox_config_duo.json" (
-        echo First time setup detected...
-        echo Launching Bounding Box Setup...
-        "%PYTHON_EXE%" "%SCRIPT_DIR%\bounding_box_setup.py"
-        echo.
-        echo Setup complete.
-    )
-)
 
 :: --- Launch Main Tracker ---
 echo Launching Warframe Tracker...

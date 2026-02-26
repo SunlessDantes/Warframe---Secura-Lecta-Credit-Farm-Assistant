@@ -1,6 +1,7 @@
 import os
 import ctypes
 import sys
+import shutil
 
 # Ensure local modules in the same directory are found
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -329,6 +330,12 @@ class SettingsDialog(QtWidgets.QDialog):
             self.check_load_prev.setEnabled(False)
             self.check_load_prev.setText("Load Last Used Settings (None found)")
 
+        # Import Config Button
+        self.btn_import = QtWidgets.QPushButton("Import Config from Previous Version")
+        self.btn_import.setToolTip("Select the folder of your previous version to import bounding boxes and settings.")
+        self.btn_import.clicked.connect(self.import_old_config)
+        layout.addWidget(self.btn_import)
+
         line = QtWidgets.QFrame()
         line.setFrameShape(QtWidgets.QFrame.HLine)
         line.setFrameShadow(QtWidgets.QFrame.Sunken)
@@ -503,6 +510,52 @@ class SettingsDialog(QtWidgets.QDialog):
 
         self.setLayout(layout)
 
+    def import_old_config(self):
+        src_dir = QtWidgets.QFileDialog.getExistingDirectory(self, "Select Previous Version Folder")
+        if not src_dir:
+            return
+
+        files_to_copy = [
+            "bbox_config_solo.json",
+            "bbox_config_duo.json",
+            "last_run_settings.json",
+            "path_config.json",
+            "setup_screenshot_solo.png",
+            "setup_screenshot_duo.png"
+        ]
+        
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        count = 0
+        
+        for filename in files_to_copy:
+            src_path = os.path.join(src_dir, filename)
+            if os.path.exists(src_path):
+                try:
+                    shutil.copy2(src_path, os.path.join(current_dir, filename))
+                    count += 1
+                except Exception as e:
+                    print(f"[Import] Error copying {filename}: {e}")
+        
+        if count > 0:
+            QtWidgets.QMessageBox.information(self, "Import Complete", f"Successfully imported {count} configuration files.\nSettings will now reload.")
+            # Reload settings if available
+            if os.path.exists(self.settings_file):
+                self.check_load_prev.setEnabled(True)
+                self.check_load_prev.setText("Load Last Used Settings")
+                self.check_load_prev.setChecked(True)
+                self.load_previous_settings(True)
+            
+            # Reload path config if available
+            if os.path.exists(self.path_config_file):
+                try:
+                    with open(self.path_config_file, 'r') as f:
+                        new_path = json.load(f).get("output_path")
+                        if new_path:
+                            self.line_path.setText(new_path)
+                except: pass
+        else:
+            QtWidgets.QMessageBox.warning(self, "Import Failed", "No configuration files found in the selected folder.\nMake sure you selected the folder containing 'CPM_OOP.py' of the old version.")
+
     def open_overlay_config(self):
         dlg = OverlayConfigDialog(self.overlay_config, self)
         if dlg.exec_() == QtWidgets.QDialog.Accepted:
@@ -531,6 +584,25 @@ class SettingsDialog(QtWidgets.QDialog):
         if not self.check_credits.isChecked() and not self.check_kills.isChecked():
             QtWidgets.QMessageBox.warning(self, "Invalid Settings", "You must track at least Credits or Kills.")
             return
+
+        # Check if configuration exists for the selected mode
+        mode = "Solo" if self.radio_solo.isChecked() else "Duo"
+        config_filename = "bbox_config_solo.json" if mode == "Solo" else "bbox_config_duo.json"
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), config_filename)
+
+        if not os.path.exists(config_path):
+            reply = QtWidgets.QMessageBox.question(
+                self, "Configuration Missing",
+                f"No configuration found for {mode} mode.\n\nYou must run the Bounding Box Setup before starting.\nRun Setup now?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+            )
+            if reply == QtWidgets.QMessageBox.Yes:
+                self.run_setup_wizard()
+                # If they cancelled the setup, don't proceed to start
+                if not os.path.exists(config_path):
+                    return
+            else:
+                return
 
         if self.check_fps.isChecked():
             try:
