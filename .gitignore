@@ -20,6 +20,13 @@ setup_screenshot_*.png
 python_and_required_packages/
 easyocr_models/
 
+# Ignore the patch generator script
+Source/Branch_tests.py
+
+# Ignore generated patch folders
+Branch_Patch_*
+
+
 # VS Code / Editor settings
 .vscode/
 .idea/
