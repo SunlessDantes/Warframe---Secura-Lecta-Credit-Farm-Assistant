@@ -2,6 +2,14 @@
 
 A Python-based overlay and tracker for Warframe that monitors Credits Per Minute (CPM), Kills Per Minute (KPM), Enemy Data  using Optical Character Recognition and EE.log reading.
 
+## Safety Disclaimer
+
+This project is strictly a Quality of Life (QoL) and analytics tool.
+
+* **No Code Interference**: It does not modify, inject into, or interfere with Warframe's memory or internal code in any way. (EE.log is strictly read-only).
+* **No Automation**: This tool does not use any macros, automated keystrokes, or botting to play the game or complete tasks for you.
+* **No Unfair Advantage**: It simply uses standard OCR (Optical Character Recognition) to read the screen and parses local log files to plot statistics, allowing players to analyze and improve their own performance.
+
 ## Features
 - **Live Overlay:** Draggable stats (Credits,CPM, current ammount of alive enemies, KPM, FPS) over the game.
 - **Real-time Graphs:** Visualizes your farming efficiency.
