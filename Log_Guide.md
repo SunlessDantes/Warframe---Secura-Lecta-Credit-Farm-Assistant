@@ -20,7 +20,23 @@ This CSV file contains the raw data for your run. It is updated in real-time.
 | **FPS** | Frames Per Second (requires FPS Tracking). |
 | **Event** | Markers for specific actions (e.g., "Scan" indicates a TAB press). |
 
-## 2. Runtime Log (`runtime_log.txt`)
+## 2. Debug Mode & Debug Info
+
+The **DEBUG MODE** checkbox in the settings menu controls the level of detail recorded during your run.
+
+### What it does:
+*   **Enables Detailed Logging:** The `runtime_log.txt` will contain significantly more technical information, including file operations, exact timestamps of internal events, and error traces.
+*   **Creates `DEBUG_INFO` Folder:** Inside your run folder, a subfolder named `DEBUG_INFO` is created to store diagnostic files.
+*   **Saves Failed Scans:** If the OCR fails to read credits or kills, a screenshot of what the tracker saw is saved here. This is crucial for adjusting your bounding boxes.
+*   **Records EE.log:** A copy of Warframe's `EE.log` covering the duration of the run is saved as `ee_recording.log`.
+
+### Files in `DEBUG_INFO`:
+*   **`runtime_log.txt`**: (Moved here if Debug is on) The verbose internal log.
+*   **`NO_CREDITS_TEXT_AT_...png`**: Saved when the tracker could not find the word "Credits" in the green Scan Area.
+*   **`OCR_CREDITS_FAIL_AT_...png`**: Saved when "Credits" was found, but the number reading failed (e.g., glare, obstruction).
+*   **`ee_recording.log`**: A safe copy of Warframe's log file for this specific run. Useful for verifying Acolyte/Effigy detection issues.
+
+## 3. Runtime Log (`runtime_log.txt`)
 
 This text file records the internal events of the tracker.
 *   **Location:** Inside the run folder. If **DEBUG MODE** is on, it is inside `DEBUG_INFO`.
@@ -53,15 +69,3 @@ The tracker allows switching between **Cumulative** and **Rolling** averages to 
 *   **Note for CPM/Tab KPM:** Since these rely on manual scans, the Rolling calculation searches for the scan closest to the target window time.
     *   *Example:* If Window is 300s (5 min) and you scan at minute 10, it looks for a scan that happened around minute 5.
     *   If no scan exists near the target time (e.g., start of run), it falls back to Cumulative calculation.
-
-## 3. Debug Info (`DEBUG_INFO` Folder)
-
-*Only created if **DEBUG MODE** is enabled in Settings.*
-
-### Failed Scan Images
-If a scan fails, the tracker saves the image it tried to read so you can adjust your bounding boxes or analyze the error.
-*   **`NO_CREDITS_TEXT_AT_...png`**: The tracker could not find the word "Credits" in the Scan Area.
-*   **`OCR_CREDITS_FAIL_AT_...png`**: The tracker found "Credits" but could not read the number.
-
-### EE.log Recording
-*   **`ee_recording.log`**: A safe copy of Warframe's `EE.log` covering **only** the duration of your run. (F8 press till F10 press)
