@@ -1,6 +1,6 @@
 # Warframe Lecta Tracker (CPM/KPM/OCR)
 
-A Python-based overlay and tracker for Warframe that monitors Credits Per Minute (CPM), Kills Per Minute (KPM), Enemy Data  using Optical Character Recognition and EE.log reading.
+A Python-based overlay and tracker for Warframe that monitors Credits Per Minute (CPM), Kills Per Minute (KPM) and Enemy Data using Optical Character Recognition and EE.log reading.
 
 ## Safety Disclaimer
 
