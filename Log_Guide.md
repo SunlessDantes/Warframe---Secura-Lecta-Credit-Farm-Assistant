@@ -12,9 +12,11 @@ This CSV file contains the raw data for your run. It is updated in real-time.
 | **Live** | *Requires Log Tracking.* Number of enemies currently alive on the map (from `EE.log`). |
 | **Spawned** | *Requires Log Tracking.* Total number of enemies spawned since mission start (from `EE.log`). |
 | **Credits** | Total credits accumulated. Updated when you press TAB. |
-| **CPM** | **Credits Per Minute**. Calculated as `Credits / (Time / 60)`. |
+| **CPM** | **Credits Per Minute**. Calculated as `Credits / (Time / 60)`. Data points are on fill forward basis untill a new data point is recorded. So expect to see many doubles|
 | **Kills** | Total enemies killed. <br>• **Log Mode:** Calculated as `Spawned - Live`.<br>• **OCR Mode:** Read directly from the TAB menu. |
 | **KPM** | **Kills Per Minute**. Calculated as `Kills / (Time / 60)`. |
+| **Tab_KPM** | *Optional.* Snapshot KPM recorded only when TAB is pressed. Present if 'Track Kills' is enabled. |
+| **Log_KPM** | *Optional.* Continuous KPM calculated from `EE.log` data. Present if 'Track Logs' is enabled. |
 | **FPS** | Frames Per Second (requires FPS Tracking). |
 | **Event** | Markers for specific actions (e.g., "Scan" indicates a TAB press). |
 
@@ -22,7 +24,10 @@ This CSV file contains the raw data for your run. It is updated in real-time.
 
 This text file records the internal events of the tracker.
 *   **Location:** Inside the run folder. If **DEBUG MODE** is on, it is inside `DEBUG_INFO`.
-*   **Format:** `[Date Time] [Run Timer] Message`
+*   **Format:** `[AppTime] [EE: Offset] [T+RunTime] Message`
+    *   **[AppTime]**: Seconds since the application started.
+    *   **[EE: ...]**: Calculated timestep in the sliced log (Run Time).
+    *   **[T+...]**: Time relative to Run Start (F8).
 
 ### Common Entries
 *   **[Run]**: Indicates start/stop of the timer. Includes configuration details (Mode, Resolution, Active Features) at the start.

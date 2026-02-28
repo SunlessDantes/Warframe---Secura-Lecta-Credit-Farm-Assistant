@@ -349,6 +349,18 @@ def main():
         except: pass
     
     if not data:
+        # Try to copy from the other mode if available
+        other_filename = "bbox_config_duo.json" if setup_mode == "Solo" else "bbox_config_solo.json"
+        other_path = os.path.join(application_path, other_filename)
+        if os.path.exists(other_path):
+            try:
+                with open(other_path, 'r') as f:
+                    data = json.load(f)
+                print(f"No existing config for {setup_mode}. Copied boxes from {other_filename} as a starting point.")
+                data['setup_mode'] = setup_mode
+            except: pass
+
+    if not data:
         data = {
         'setup_mode': setup_mode,
         'scan_area': [0, 0, 100, 100], # Dummy defaults

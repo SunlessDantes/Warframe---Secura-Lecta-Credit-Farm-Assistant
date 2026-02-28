@@ -6,12 +6,16 @@ A Python-based overlay and tracker for Warframe that monitors Credits Per Minute
 - **Live Overlay:** Draggable stats (Credits,CPM, current ammount of alive enemies, KPM, FPS) over the game.
 - **Real-time Graphs:** Visualizes your farming efficiency.
 - **OCR Tracking:** Reads credits/kills from the Mission Progress screen (Tab).
-- **Enemy Tracking:** Reads how many enemies are currently alive from ``EE.log``.
+- **Log Analysis (Real-time):** Reads `EE.log` to track:
+    *   Live Enemy Count
+    *   Live KPM (as alternative to log reading)
+    *   Total Enemies Spawned
+    *   Ally/Effigy Status
 - **FPS Tracker:** Uses PresentMon for an FPS plot.
 - **Live PB comparing:** Upload a run that will plot live along your data to see how much better/worse you perform.
 - **Acolyte Warner:** Flashes a warning on-screen when an Acolyte is about to spawn, showing its name and a countdown.
 - **Effigy Replace Warner** When Effigy dissapeares (dead or no energy) a warning will be flashed to replace it.
-
+- **Sound Alerts:** Customizable sounds (Beeps or MP3/WAV) for successful scans, failures, and warnings.
 ---
 
 ## Example
@@ -80,12 +84,13 @@ For a detailed explanation of the CSV data, runtime logs, and debug files, pleas
 ## Requirements
 - Warframe must be running on the **Primary Monitor**.
 - Interface Scale in Warframe should be consistent (default 100 recommended).
-- **PresentMon.exe** must be in the folder for FPS tracking.
+- **PresentMon.exe** must be in the ``LECTA_SCRIPTS`` for FPS tracking.
   - *Note:* This project uses **PresentMon v1.6.0** (Legacy). Newer versions of Intel PresentMon have changed their output format and command-line arguments, which are not compatible with this tracker's parsing logic. The correct version is included in the release.
 
 
 ## General Notes and Feature explenation
-* `EE.log` is only read from, no injection is happening. You can uncheck that box and the script will not read the data.
-* The Acolyte Warner relies on reading `EE.log` to detect specific pre-spawn log entries. It can identify Violence, Mania, Torment, and Malice by name. For Misery and Angst, it provides a generic "Acolyte" warning due to ambiguous log data.
+* `EE.log` is only read from, no injection is happening. You can uncheck that box and the script will not read the data. The log features will only work if you are the host. ``EE.log`` is different for Client.
+* The Acolyte Warner relies on reading `EE.log` to detect specific pre-spawn log entries. It can identify Violence, Mania, Torment, and Malice by name. For Misery and Angst, identification happens via the Scream. (Therefore the warning for Misery and Angst happens earlier than for the other Acolytes)
 * Tracking the FPS requires `PresentMon.exe` to be run as Administrator hence you will be asked to rerun as Administrator.
+* ``EE.log`` based KPM works best in faster paced enviroments, so no earth non SP capture e.g. is recommended. Though this is for Secura LEcta Credit farm, where enemies spawn constantly. 
 * You can load already recorded runs (`master_run_log.csv`) from yourself or others into the tracker, this will add plots when you start so you can compare yourself to another Run (e.g. your own PB). You have the option to either let the PB run plot itself along with your data (recommended for readability and visability) or you can plot the entire PB plot and just have your current run plot live. Either way the `run_plots.png` and `enemy_plots.png` will include both runs across your recorded time window.

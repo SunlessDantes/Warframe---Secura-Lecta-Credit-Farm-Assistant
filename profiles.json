@@ -47,5 +47,81 @@
         "output_path": "C:/Users/rapha/RL/Warframe_lecta/temp_run_data_from_source",
         "pb_file": "",
         "show_pb_live": true
+    },
+    "Duo testing with everything": {
+        "mode": "Duo",
+        "scan_delay": 0.1,
+        "cooldown": 2.0,
+        "track_credits": true,
+        "track_kills": true,
+        "effigy_warner_enabled": true,
+        "always_on_top": true,
+        "use_sound": true,
+        "debug_mode": true,
+        "sound_config": {
+            "scan_success": {
+                "type": "Custom Beep",
+                "freq": 1000,
+                "dur": 150,
+                "vol": 100
+            },
+            "scan_fail": {
+                "type": "Custom Beep",
+                "freq": 500,
+                "dur": 200,
+                "vol": 100
+            },
+            "acolyte": {
+                "type": "Custom Beep",
+                "freq": 1500,
+                "dur": 100,
+                "vol": 100
+            },
+            "effigy": {
+                "type": "Custom Beep",
+                "freq": 1500,
+                "dur": 100,
+                "vol": 100
+            }
+        },
+        "track_logs": true,
+        "use_log_kpm": true,
+        "add_log_kpm_plot": true,
+        "track_fps": true,
+        "use_overlay": true,
+        "overlay_config": {
+            "CPM": {
+                "show": true,
+                "color": "#ffffff"
+            },
+            "KPM": {
+                "show": true,
+                "color": "#ffffff"
+            },
+            "Num alive": {
+                "show": true,
+                "color": "#ffffff"
+            },
+            "FPS": {
+                "show": true,
+                "color": "#ffffff"
+            }
+        },
+        "acolyte_warner_enabled": true,
+        "acolyte_config": {
+            "audio_cue": true,
+            "color": "#ff0000",
+            "opacity": 70
+        },
+        "effigy_config": {
+            "audio_cue": true,
+            "color": "#0000FF",
+            "opacity": 67
+        },
+        "data_recording_rate": 100,
+        "log_update_rate": 0.1,
+        "output_path": "C:/Users/rapha/RL/Warframe_lecta/temp_run_data_from_source",
+        "pb_file": "",
+        "show_pb_live": true
     }
 }

@@ -225,7 +225,7 @@ class OverlayConfigDialog(QtWidgets.QDialog):
             grid.addWidget(QtWidgets.QLabel(f"<b>{h}</b>"), 0, col)
 
         self.widgets = {}
-        metrics = ["CPM", "KPM", "Num alive", "FPS"]
+        metrics = ["CPM", "KPM TAB", "KPM LOG", "Num alive", "FPS"]
         
         for i, m in enumerate(metrics):
             row = i + 1

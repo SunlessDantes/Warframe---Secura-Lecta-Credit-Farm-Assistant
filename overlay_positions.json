@@ -1,7 +1,42 @@
 {
     "Num alive": {
-        "x": 132,
-        "y": 1104,
-        "font_size": 62
+        "x": 1173,
+        "y": 939,
+        "font_size": 26
+    },
+    "CPM": {
+        "x": 232,
+        "y": 911,
+        "font_size": 30
+    },
+    "KPM": {
+        "x": 1168,
+        "y": 888,
+        "font_size": 30
+    },
+    "FPS": {
+        "x": 1181,
+        "y": 839,
+        "font_size": 28
+    },
+    "acolyte": {
+        "x": 1271,
+        "y": 1066,
+        "font_size": 48
+    },
+    "effigy": {
+        "x": 790,
+        "y": 1057,
+        "font_size": 48
+    },
+    "KPM TAB": {
+        "x": 1168,
+        "y": 888,
+        "font_size": 30
+    },
+    "KPM LOG": {
+        "x": 1169,
+        "y": 741,
+        "font_size": 24
     }
 }

@@ -143,7 +143,8 @@ class SettingsDialog(QtWidgets.QDialog):
         # Default Overlay Config
         self.overlay_config = {
             "CPM": {"show": True, "color": "#FF0000"},
-            "KPM": {"show": True, "color": "#FF0000"},
+            "KPM TAB": {"show": True, "color": "#FF0000"},
+            "KPM LOG": {"show": True, "color": "#FF0000"},
             "Num alive": {"show": True, "color": "#FF0000"},
             "FPS": {"show": True, "color": "#FF0000"},
         }
@@ -278,11 +279,10 @@ class SettingsDialog(QtWidgets.QDialog):
         self.check_logs.setToolTip("Reads Warframe's EE.log file in real-time to track enemy spawn/death counts.\nThis provides highly accurate, continuous KPM data.")
         layout.addWidget(self.check_logs)
         
-        # Log KPM Option
-        self.check_log_kpm = QtWidgets.QCheckBox("   └─ Use Log Data for Kills/KPM")
-        self.check_log_kpm.setChecked(True)
-        self.check_log_kpm.setToolTip("If checked, Kills and KPM are calculated from the log file (Real-time).\nIf unchecked, they are read from the Tab menu via OCR (only updates on scan).")
-        layout.addWidget(self.check_log_kpm)
+        # Add Log KPM Plot Option
+        self.check_add_log_kpm = QtWidgets.QCheckBox("   └─ Add separate Log KPM Plot")
+        self.check_add_log_kpm.setToolTip("Adds an additional plot showing KPM derived from logs, regardless of the main KPM source.\nUseful for comparing OCR KPM vs Log KPM.")
+        layout.addWidget(self.check_add_log_kpm)
 
         # Acolyte Warner (only available if log tracking is on)
         acolyte_group = QtWidgets.QGroupBox("Acolyte Warner")
@@ -561,7 +561,7 @@ class SettingsDialog(QtWidgets.QDialog):
         self.btn_conf_acolyte.setEnabled(log_tracking_enabled and self.check_acolyte.isChecked())
         self.check_effigy.setEnabled(log_tracking_enabled)
         self.btn_conf_effigy.setEnabled(log_tracking_enabled and self.check_effigy.isChecked())
-        self.check_log_kpm.setEnabled(log_tracking_enabled and kills_enabled)
+        self.check_add_log_kpm.setEnabled(log_tracking_enabled)
         
         enabled = self.check_logs.isChecked() or self.check_fps.isChecked()
         self.log_rate_container.setEnabled(enabled)
@@ -763,7 +763,7 @@ class SettingsDialog(QtWidgets.QDialog):
             "effigy": {"type": "Custom Beep", "freq": 1500, "dur": 100, "vol": 100}
         })
         
-        self.check_log_kpm.setChecked(data.get("use_log_kpm", True))
+        self.check_add_log_kpm.setChecked(data.get("add_log_kpm_plot", False))
         self.check_fps.setChecked(data.get("track_fps", False))
         self.check_overlay.setChecked(data.get("use_overlay", False))
         self.check_acolyte.setChecked(data.get("acolyte_warner_enabled", False))
@@ -802,7 +802,7 @@ class SettingsDialog(QtWidgets.QDialog):
             "debug_mode": self.check_debug.isChecked(),
             "sound_config": self.sound_config,
             "track_logs": self.check_logs.isChecked(),
-            "use_log_kpm": self.check_log_kpm.isChecked(),
+            "add_log_kpm_plot": self.check_add_log_kpm.isChecked(),
             "track_fps": self.check_fps.isChecked(),
             "use_overlay": self.check_overlay.isChecked(),
             "overlay_config": self.overlay_config,

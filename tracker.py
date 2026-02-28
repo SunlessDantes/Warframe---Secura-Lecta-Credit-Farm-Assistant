@@ -41,6 +41,7 @@ class WarframeTracker(QtCore.QObject):
 
     def __init__(self, settings):
         super().__init__() #initializing the QObject parent class
+        self.app_start_time = time.perf_counter()
         self.settings = settings
         
         # Initialize QApplication early so we can use GUI elements (ROI Selector) in __init__
@@ -60,6 +61,8 @@ class WarframeTracker(QtCore.QObject):
         self.state_cpm = 0
         self.state_kills = 0
         self.state_kpm = 0
+        self.state_tab_kpm = 0
+        self.state_log_kpm = 0
         self.state_fps = 0
         self.pending_event = ""
         self.tab_held = False
@@ -135,16 +138,17 @@ class WarframeTracker(QtCore.QObject):
             return "Unknown"
 
     def log(self, message, important=False, is_error=False):
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        current_time = time.perf_counter()
+        app_time = current_time - self.app_start_time
         
+        ee_str = ""
         run_time_str = ""
         if hasattr(self, 'start_time') and self.start_time is not None:
-            elapsed = time.perf_counter() - self.start_time
-            mins = int(elapsed // 60)
-            secs = int(elapsed % 60)
-            run_time_str = f" [T+{mins:02d}:{secs:02d}]"
+            elapsed = current_time - self.start_time
+            ee_str = f" [EE: {elapsed:.3f}]"
+            run_time_str = f" [T+{elapsed:.3f}s]"
 
-        log_line = f"[{timestamp}]{run_time_str} {message}"
+        log_line = f"[{app_time:.3f}s]{ee_str}{run_time_str} {message}"
         
         if self.log_file:
             try:
@@ -168,6 +172,8 @@ class WarframeTracker(QtCore.QObject):
         self.cpm = []
         self.start_time = None
         self.last_tab_time = 0.0 
+        self.time_credits = []
+        self.time_kills = []
         
         # Scan Area Defaults
         self.scan_left = self.monitor["left"] + int(self.monitor["width"] * 30 / 100)
@@ -187,7 +193,7 @@ class WarframeTracker(QtCore.QObject):
         self.track_kills = self.settings['track_kills']
         self.effigy_enabled = self.settings.get('effigy_warner_enabled', False)
         self.track_logs = self.settings.get('track_logs', False)
-        self.use_log_kpm = self.settings.get('use_log_kpm', True)
+        self.add_log_kpm_plot = self.settings.get('add_log_kpm_plot', False)
         self.track_fps = self.settings.get('track_fps', False)
         self.log_update_rate = self.settings.get('log_update_rate', 0.1)
         self.data_recording_interval_ms = self.settings.get('data_recording_rate', 100)
@@ -201,6 +207,9 @@ class WarframeTracker(QtCore.QObject):
         
         self.effigy_threshold = 3 if self.settings.get('mode', 'Solo') == 'Duo' else 2
         print(f"[Init] Effigy Warning Threshold set to {self.effigy_threshold} (Mode: {self.settings.get('mode', 'Solo')})")
+
+        # Load PB Data early to determine layout
+        self.load_pb_data()
 
         # Initial Setup Loop
         while True:
@@ -242,13 +251,17 @@ class WarframeTracker(QtCore.QObject):
 
         # --- Dynamic Plot Layout ---
         active_plots = []
-        if self.track_credits:
+        pb_cols = self.pb_data.columns if self.pb_data is not None else []
+
+        if self.track_credits or 'CPM' in pb_cols or 'Credits' in pb_cols:
             active_plots.extend(['cpm', 'creds'])
-        if self.track_kills:
+        if self.track_kills or 'KPM' in pb_cols:
             active_plots.append('kpm')
-        if self.track_logs:
+        if self.track_logs or 'Spawned' in pb_cols or 'Live' in pb_cols:
             active_plots.extend(['spawned', 'live'])
-        if self.track_fps:
+            if self.add_log_kpm_plot or 'Log_KPM' in pb_cols:
+                active_plots.append('log_kpm')
+        if self.track_fps or 'FPS' in pb_cols:
             active_plots.append('fps')
 
         num_plots = len(active_plots)
@@ -302,8 +315,7 @@ class WarframeTracker(QtCore.QObject):
                 self.plot_kpm = p
                 p.setTitle("Kills Per Minute (KPM)", size="16pt")
                 p.setLabel('left', 'KPM')
-                symbol = None if self.track_logs else 'o'
-                self.curve_kpm = p.plot(pen='r', symbol=symbol)
+                self.curve_kpm = p.plot(pen='r', symbol='o')
                 self.curve_kpm_pb = p.plot(pen=pg.mkPen('r', style=QtCore.Qt.DotLine))
 
             elif p_type == 'spawned':
@@ -319,6 +331,13 @@ class WarframeTracker(QtCore.QObject):
                 p.setLabel('left', 'Count')
                 self.curve_live = p.plot(pen='c', name='num alive')
                 self.curve_live_pb = p.plot(pen=pg.mkPen('c', style=QtCore.Qt.DotLine))
+
+            elif p_type == 'log_kpm':
+                self.plot_log_kpm = p
+                p.setTitle("Log KPM (Separate)", size="16pt")
+                p.setLabel('left', 'KPM')
+                self.curve_log_kpm = p.plot(pen='m', name='Log KPM')
+                self.curve_log_kpm_pb = p.plot(pen=pg.mkPen('m', style=QtCore.Qt.DotLine))
 
             elif p_type == 'fps':
                 self.plot_fps = p
@@ -340,7 +359,7 @@ class WarframeTracker(QtCore.QObject):
         if self.use_overlay:
             ov_cfg = self.settings.get("overlay_config", {})
             # Define defaults if missing
-            defaults = {"CPM": "#FF0000", "KPM": "#FF0000", "Num alive": "#FF0000", "FPS": "#FF0000"}
+            defaults = {"CPM": "#FF0000", "KPM TAB": "#FF0000", "KPM LOG": "#FF0000", "Num alive": "#FF0000", "FPS": "#FF0000"}
             
             # Start positions (Top-Left of Main Monitor)
             start_x = self.monitor["left"] + 20
@@ -356,6 +375,12 @@ class WarframeTracker(QtCore.QObject):
                         pos = QtCore.QPoint(saved['x'], saved['y'])
                         font_size = saved.get('font_size', 24)
                         self.number_overlays[key] = DraggableNumberOverlay(key, cfg.get("color", defaults[key]), self.monitor, pos, font_size)
+                    elif key == "KPM TAB" and "KPM" in self.saved_positions:
+                        # Migration for old KPM key
+                        saved = self.saved_positions["KPM"]
+                        pos = QtCore.QPoint(saved['x'], saved['y'])
+                        font_size = saved.get('font_size', 24)
+                        self.number_overlays[key] = DraggableNumberOverlay(key, cfg.get("color", defaults[key]), self.monitor, pos, font_size)
                     else:
                         pos = QtCore.QPoint(start_x, current_y)
                         self.number_overlays[key] = DraggableNumberOverlay(key, cfg.get("color", defaults[key]), self.monitor, pos)
@@ -363,7 +388,8 @@ class WarframeTracker(QtCore.QObject):
                     self.number_overlays[key].show()
 
             if self.track_credits: create_ov("CPM")
-            if self.track_kills: create_ov("KPM")
+            if self.track_kills: create_ov("KPM TAB")
+            if self.track_logs: create_ov("KPM LOG")
             if self.track_logs: create_ov("Num alive")
             if self.track_fps: create_ov("FPS")
 
@@ -401,6 +427,8 @@ class WarframeTracker(QtCore.QObject):
             self.plot_data_live = {"t": [], "y": []}
             self.plot_data_spawned = {"t": [], "y": []}
             self.plot_data_kpm = {"t": [], "y": []}
+            if self.add_log_kpm_plot:
+                self.plot_data_log_kpm = {"t": [], "y": []}
             
         if self.track_fps:
             self.plot_data_fps = {"t": [], "y": []}
@@ -512,6 +540,8 @@ class WarframeTracker(QtCore.QObject):
             self.overlay = None
             if self.acolyte_warner:
                 self.acolyte_warner.hide_preview()
+            if self.effigy_warner:
+                self.effigy_warner.hide_preview()
             return
 
         mx = self.monitor['left']
@@ -591,6 +621,7 @@ class WarframeTracker(QtCore.QObject):
 
     def load_pb_data(self):
         path = self.settings.get("pb_file", "")
+        self.pb_data = None # Default to None
         if not path or not os.path.exists(path):
             return
         
@@ -600,7 +631,6 @@ class WarframeTracker(QtCore.QObject):
 
         if not os.path.exists(path):
             print(f"[PB] Warning: File not found: {path}")
-            return
             
         try:
             print(f"[PB] Loading Personal Best data from: {os.path.basename(os.path.dirname(path))}/{os.path.basename(path)}")
@@ -664,6 +694,8 @@ class WarframeTracker(QtCore.QObject):
         self.kpm = []
         self.current_run_time = []
         self.cpm = []
+        self.time_credits = []
+        self.time_kills = []
         self.initial_log_kills = None
         self.ee_log_start_offset = None
         
@@ -679,22 +711,26 @@ class WarframeTracker(QtCore.QObject):
         self.state_cpm = 0
         self.state_kills = 0
         self.state_kpm = 0
+        self.state_tab_kpm = 0
+        self.state_log_kpm = 0
         self.state_fps = 0
         self.pending_event = "Start"
         self.is_effigy_dead = False
         self.last_ally_live = 0
         
         # Clear PB Curves (in case they were shown in a previous run)
-        if self.track_credits:
+        if hasattr(self, 'curve_cpm_pb'):
             self.curve_cpm_pb.setData([], [])
             self.curve_creds_pb.setData([], [])
-        if self.track_kills:
+        if hasattr(self, 'curve_kpm_pb'):
             self.curve_kpm_pb.setData([], [])
-        if self.track_logs:
+        if hasattr(self, 'curve_spawned_pb'):
             self.curve_spawned_pb.setData([], [])
             self.curve_live_pb.setData([], [])
-        if self.track_fps:
+        if hasattr(self, 'curve_fps_pb'):
             self.curve_fps_pb.setData([], [])
+        if hasattr(self, 'curve_log_kpm_pb'):
+            self.curve_log_kpm_pb.setData([], [])
         
         if self.track_logs:
             self.enemy_data = {"time": [], "live": [], "spawned": []}
@@ -707,6 +743,10 @@ class WarframeTracker(QtCore.QObject):
             self.curve_live.setData([], [])
             self.curve_spawned.setData([], [])
             
+            if self.add_log_kpm_plot:
+                self.plot_data_log_kpm = {"t": [], "y": []}
+                self.curve_log_kpm.setData([], [])
+
         if self.track_fps:
             self.plot_data_fps = {"t": [], "y": []}
             self.curve_fps.setData([], [])
@@ -734,6 +774,7 @@ class WarframeTracker(QtCore.QObject):
             
             self.log(f"[Run] Started! Output: {self.run_output_path}", important=True)
             self.log(f"[Run] Debug Mode: {self.debug_mode}")
+            self.log("[Info] [AppTime] (first square brackets) is relative to program start, not F8 press. [EE] is the calculated timestep in the sliced log (Run Time).")
             
             # --- Verbose Start Info for Players ---
             self.log("-" * 40)
@@ -771,21 +812,20 @@ class WarframeTracker(QtCore.QObject):
         # Always start the timer now to record FPS even if logs are off
         self.sig_start_log_timer.emit()
         
-        # Load PB Data
-        self.load_pb_data()
-        
         # If Static Mode (show_pb_live is False), plot full data immediately
         if self.pb_data is not None and not self.show_pb_live:
             t = self.pb_data['Time_Min'].to_numpy()
-            if self.track_credits:
+            if hasattr(self, 'curve_cpm_pb'):
                 if 'CPM' in self.pb_data: self.curve_cpm_pb.setData(t, self.pb_data['CPM'].to_numpy())
                 if 'Credits' in self.pb_data: self.curve_creds_pb.setData(t, self.pb_data['Credits'].to_numpy())
-            if self.track_kills:
+            if hasattr(self, 'curve_kpm_pb'):
                 if 'KPM' in self.pb_data: self.curve_kpm_pb.setData(t, self.pb_data['KPM'].to_numpy())
-            if self.track_logs:
+            if hasattr(self, 'curve_spawned_pb'):
                 if 'Spawned' in self.pb_data: self.curve_spawned_pb.setData(t, self.pb_data['Spawned'].to_numpy())
                 if 'Live' in self.pb_data: self.curve_live_pb.setData(t, self.pb_data['Live'].to_numpy())
-            if self.track_fps:
+            if hasattr(self, 'curve_log_kpm_pb'):
+                if 'Log_KPM' in self.pb_data: self.curve_log_kpm_pb.setData(t, self.pb_data['Log_KPM'].to_numpy())
+            if hasattr(self, 'curve_fps_pb'):
                 if 'FPS' in self.pb_data: self.curve_fps_pb.setData(t, self.pb_data['FPS'].to_numpy())
 
     def trigger_ability_warning(self):
@@ -814,8 +854,10 @@ class WarframeTracker(QtCore.QObject):
     def find_credits_coords(self, im):
         # Convert to gray for OCR
         im_gray = cv.cvtColor(im, cv.COLOR_BGRA2GRAY)
+        # Threshold to isolate white text (Credits label)
+        _, im_thresh = cv.threshold(im_gray, 150, 255, cv.THRESH_BINARY)
         # Read text without allowlist to find letters
-        results = self.reader.readtext(im_gray)
+        results = self.reader.readtext(im_thresh)
         
         for (bbox, text, prob) in results:
             if "credits" in text.lower():
@@ -930,7 +972,7 @@ class WarframeTracker(QtCore.QObject):
             im_credits_val = self.screenshot(bbox=tuple(best_box))
             
         im_kills_val = None
-        if self.track_kills and (not self.track_logs or not self.use_log_kpm):
+        if self.track_kills and not self.track_logs:
             bbox_kills = (self.left_kills, self.top_kills, self.right_kills, self.lower_kills)
             im_kills_val = self.screenshot(bbox=bbox_kills)
 
@@ -959,6 +1001,7 @@ class WarframeTracker(QtCore.QObject):
                 self.creds.append(num)
                 self.confidences.append(confidence)
                 self.cpm.append(cpm_value)
+                self.time_credits.append(time_mins)
                 self.state_credits = num
                 self.state_cpm = int(cpm_value)
             else:
@@ -974,8 +1017,8 @@ class WarframeTracker(QtCore.QObject):
         # --- Kills Logic (OCR) ---
         kills_num = 0
         if self.track_kills:
-            if self.track_logs and self.use_log_kpm and self.log_reader:
-                live, spawned = self.log_reader.get_stats()
+            if self.track_logs and self.log_reader:
+                live, spawned, _ = self.log_reader.get_stats()
                 kills_num = max(0, spawned - live)
                 scan_succeeded = True # Log reading is not an OCR fail state
             elif im_kills_val is not None:
@@ -1003,13 +1046,14 @@ class WarframeTracker(QtCore.QObject):
 
             # Only append and update state if we have a valid number
             # (or if we are using logs where 0 is a valid state)
-            if (self.track_logs and self.use_log_kpm) or (kills_num > 0):
+            if (self.track_logs) or (kills_num > 0):
                 kpm_value = kills_num / time_mins
                 self.kills.append(kills_num)
                 self.kpm.append(kpm_value)
-                if not self.track_logs or not self.use_log_kpm:
-                    self.state_kills = kills_num
-                    self.state_kpm = int(kpm_value)
+                self.time_kills.append(time_mins)
+                self.state_tab_kpm = int(kpm_value)
+                self.state_kills = kills_num
+                self.state_kpm = int(kpm_value)
 
         # --- 5. Finalize and Signal ---
         if not scan_succeeded:
@@ -1022,11 +1066,6 @@ class WarframeTracker(QtCore.QObject):
             self.play_sound_event("scan_success")
         self.current_run_time.append(time_mins)
 
-        # Update Kills state if using logs (must happen after success check)
-        if self.track_kills and self.track_logs and self.use_log_kpm:
-            kpm_value = (kills_num / time_mins) if time_mins > 0.017 else 0
-            self.state_kills = kills_num
-            self.state_kpm = int(kpm_value)
 
         # Mark Event
         if self.track_logs:
@@ -1044,14 +1083,14 @@ class WarframeTracker(QtCore.QObject):
         # --- Console Output ---
         log_msg = f"Scanned - Time: {time_mins:.2f}m"
         if self.track_credits and num > 0: log_msg += f" | Credits: {num} (CPM: {int(cpm_value)})"
-        if self.track_kills and ((self.track_logs and self.use_log_kpm) or kills_num > 0): log_msg += f" | Kills: {kills_num} (KPM: {int(kpm_value)})"
+        if self.track_kills and (self.track_logs or kills_num > 0): log_msg += f" | Kills: {kills_num} (KPM: {int(kpm_value)})"
         self.log(log_msg, important=True)
         
         # Update Overlays (Tab Data)
         # Must use signal because tab_action runs in a background thread (keyboard hook)
         overlay_data = {}
         if "CPM" in self.number_overlays and num > 0: overlay_data["CPM"] = int(cpm_value)
-        if "KPM" in self.number_overlays and (not self.track_logs or not self.use_log_kpm) and kills_num > 0: overlay_data["KPM"] = int(kpm_value)
+        if "KPM TAB" in self.number_overlays and kills_num > 0: overlay_data["KPM TAB"] = int(kpm_value)
         if "FPS" in self.number_overlays: overlay_data["FPS"] = self.state_fps
         
         if overlay_data:
@@ -1070,7 +1109,10 @@ class WarframeTracker(QtCore.QObject):
         if im is None:
             return 0, 0.0, time.perf_counter() - self.start_time
         im = cv.cvtColor(im, cv.COLOR_BGRA2GRAY) 
-        scan = self.reader.readtext(im, allowlist="0123456789,")
+        # Thresholding to improve accuracy on white text
+        _, im_thresh = cv.threshold(im, 150, 255, cv.THRESH_BINARY)
+        
+        scan = self.reader.readtext(im_thresh, allowlist="0123456789, ")
         
         if len(scan) == 0:
             if retries < 6 and bbox is not None:
@@ -1083,11 +1125,13 @@ class WarframeTracker(QtCore.QObject):
                 return 0, 0.0, time.perf_counter() - self.start_time
         
         try:
-            # Extract the highest confidence match
-            best_match = max(scan, key=lambda x: x[2])
-            result, confidence = best_match[1], best_match[2] 
+            # Join all detected text segments (fixes issues where "1 000" is split)
+            full_text = "".join([x[1] for x in scan])
+            clean_text = full_text.replace(",", "").replace(" ", "")
             
-            num = int(result.replace(",", "")) 
+            num = int(clean_text)
+            # Average confidence
+            confidence = sum([x[2] for x in scan]) / len(scan)
             time_cp = time.perf_counter() - self.start_time
             return num, confidence, time_cp 
         except Exception as e:
@@ -1097,20 +1141,19 @@ class WarframeTracker(QtCore.QObject):
 
     def update_plot(self):
         #triggered by the QTimer. It safely pushes data to the window.
-        if len(self.current_run_time) > 0:
-            # Safe slicing to ensure lengths match (Fixes race condition crash)
-            n = len(self.current_run_time)
-            if self.track_credits:
-                n_cpm = len(self.cpm)
-                n_creds = len(self.creds)
-                limit = min(n, n_cpm, n_creds)
-                self.curve_cpm.setData(self.current_run_time[:limit], self.cpm[:limit])
-                self.curve_creds.setData(self.current_run_time[:limit], self.creds[:limit])
-                
-            if self.track_kills and not self.track_logs:
-                n_kpm = len(self.kpm)
-                limit = min(n, n_kpm)
-                self.curve_kpm.setData(self.current_run_time[:limit], self.kpm[:limit])
+        if self.track_credits and len(self.time_credits) > 0:
+            n_time = len(self.time_credits)
+            n_cpm = len(self.cpm)
+            n_creds = len(self.creds)
+            limit = min(n_time, n_cpm, n_creds)
+            self.curve_cpm.setData(self.time_credits[:limit], self.cpm[:limit])
+            self.curve_creds.setData(self.time_credits[:limit], self.creds[:limit])
+            
+        if self.track_kills and len(self.time_kills) > 0:
+            n_time = len(self.time_kills)
+            n_kpm = len(self.kpm)
+            limit = min(n_time, n_kpm)
+            self.curve_kpm.setData(self.time_kills[:limit], self.kpm[:limit])
 
     def update_log_data(self):
         if self.start_time is None:
@@ -1171,29 +1214,23 @@ class WarframeTracker(QtCore.QObject):
                 else:
                     self.pending_event = log_event
 
-        kills = 0
-        kpm = 0.0
+        # Calculate Log Stats (Always if logs are on, for potential extra plot)
+        log_calculated_kills = 0
+        log_calculated_kpm = 0.0
         
-        if self.track_kills:
-            if self.track_logs and self.use_log_kpm:
-                current_mission_kills = max(0, spawned - live)
-                
-                if self.initial_log_kills is None:
-                    # Wait briefly for valid data to avoid 0-spike if reader is catching up
-                    if (spawned == 0 and live == 0) and t < 0.03:
-                        return
-                    self.initial_log_kills = current_mission_kills
-                
-                kills = max(0, current_mission_kills - self.initial_log_kills)
-                if t > 0.017: # Wait ~1 second to avoid high KPM spikes at start
-                    kpm = kills / t
-                
-                self.state_kills = kills
-                self.state_kpm = int(kpm)
-            else:
-                # If logs are off, keep the last known Kills/KPM from Tab scans
-                kills = self.state_kills
-                kpm = self.state_kpm
+        if self.track_logs:
+             current_mission_kills = max(0, spawned - live)
+             if self.initial_log_kills is None:
+                 # Wait briefly for valid data to avoid 0-spike if reader is catching up
+                 if (spawned == 0 and live == 0) and t < 0.03:
+                     return
+                 self.initial_log_kills = current_mission_kills
+             
+             log_calculated_kills = max(0, current_mission_kills - self.initial_log_kills)
+             if t > 0.017:
+                 log_calculated_kpm = log_calculated_kills / t
+
+        self.state_log_kpm = int(log_calculated_kpm)
             
         # Append data only if we didn't return early
         if self.track_logs:
@@ -1201,12 +1238,12 @@ class WarframeTracker(QtCore.QObject):
             self.enemy_data["live"].append(live)
             self.enemy_data["spawned"].append(spawned)
 
-            if self.track_kills:
-                self.enemy_data["kills"].append(kills)
-                self.enemy_data["kpm"].append(kpm)
+            # We don't append to self.enemy_data["kills"] here anymore for the main plot
+            # because main plot is Tab KPM.
+            # But we might want to store log kpm history for the log plot if needed.
             
-        # --- Master Log Recording (Forward Fill) ---
-        self.master_log.append({
+        # --- Master Log Recording ---
+        row = {
             "Time": round(elapsed_seconds, 2),
             "Live": live,
             "Spawned": spawned,
@@ -1216,12 +1253,19 @@ class WarframeTracker(QtCore.QObject):
             "KPM": self.state_kpm,
             "FPS": self.state_fps,
             "Event": self.pending_event
-        })
+        }
+        
+        if self.track_kills:
+            row["Tab_KPM"] = self.state_tab_kpm
+        if self.track_logs:
+            row["Log_KPM"] = int(log_calculated_kpm)
+            
+        self.master_log.append(row)
         self.pending_event = "" # Reset event after writing
 
             # Update Overlays (Log Data)
         if "Num alive" in self.number_overlays: self.number_overlays["Num alive"].update_value(live)
-        if "KPM" in self.number_overlays and self.track_kills: self.number_overlays["KPM"].update_value(int(kpm))
+        if "KPM LOG" in self.number_overlays: self.number_overlays["KPM LOG"].update_value(int(log_calculated_kpm))
         if "FPS" in self.number_overlays: self.number_overlays["FPS"].update_value(self.state_fps)
 
         # Update Plots Independently
@@ -1236,11 +1280,11 @@ class WarframeTracker(QtCore.QObject):
                 self.plot_data_spawned["y"].append(spawned)
                 self.curve_spawned.setData(self.plot_data_spawned["t"], self.plot_data_spawned["y"])
             
-            # KPM Graph (Only update here if using logs. If using Tab, it updates on Tab press)
-            if self.track_kills and self.track_logs:
-                self.plot_data_kpm["t"].append(t)
-                self.plot_data_kpm["y"].append(kpm)
-                self.curve_kpm.setData(self.plot_data_kpm["t"], self.plot_data_kpm["y"])
+            # Extra Log KPM Plot
+            if self.add_log_kpm_plot:
+                self.plot_data_log_kpm["t"].append(t)
+                self.plot_data_log_kpm["y"].append(log_calculated_kpm)
+                self.curve_log_kpm.setData(self.plot_data_log_kpm["t"], self.plot_data_log_kpm["y"])
             
             if self.track_fps:
                 self.plot_data_fps["t"].append(t)
@@ -1255,18 +1299,21 @@ class WarframeTracker(QtCore.QObject):
                     pb_slice = self.pb_data[mask]
                     t_pb = pb_slice['Time_Min'].to_numpy()
 
-                    if self.track_credits:
+                    if hasattr(self, 'curve_cpm_pb'):
                         if 'CPM' in pb_slice: self.curve_cpm_pb.setData(t_pb, pb_slice['CPM'].to_numpy())
                         if 'Credits' in pb_slice: self.curve_creds_pb.setData(t_pb, pb_slice['Credits'].to_numpy())
                     
-                    if self.track_kills:
+                    if hasattr(self, 'curve_kpm_pb'):
                         if 'KPM' in pb_slice: self.curve_kpm_pb.setData(t_pb, pb_slice['KPM'].to_numpy())
                     
-                    if self.track_logs:
+                    if hasattr(self, 'curve_spawned_pb'):
                         if 'Spawned' in pb_slice: self.curve_spawned_pb.setData(t_pb, pb_slice['Spawned'].to_numpy())
                         if 'Live' in pb_slice: self.curve_live_pb.setData(t_pb, pb_slice['Live'].to_numpy())
                     
-                    if self.track_fps:
+                    if hasattr(self, 'curve_log_kpm_pb'):
+                        if 'Log_KPM' in pb_slice: self.curve_log_kpm_pb.setData(t_pb, pb_slice['Log_KPM'].to_numpy())
+                    
+                    if hasattr(self, 'curve_fps_pb'):
                         if 'FPS' in pb_slice: self.curve_fps_pb.setData(t_pb, pb_slice['FPS'].to_numpy())
 
             self.last_plot_update = current_perf_time
@@ -1348,6 +1395,7 @@ class WarframeTracker(QtCore.QObject):
             if self.track_credits: num_plots += 2
             if self.track_kills: num_plots += 1
             if self.track_fps: num_plots += 1
+            if self.add_log_kpm_plot: num_plots += 1
             
             if num_plots > 0:
                 fig, axes = plt.subplots(num_plots, 1, figsize=(10, 5 * num_plots), constrained_layout=True)
@@ -1362,13 +1410,13 @@ class WarframeTracker(QtCore.QObject):
                 idx = 0
             if self.track_credits:
                 # CPM
-                axes[idx].plot(self.current_run_time, self.cpm, 'yo-', label='CPM')
+                axes[idx].plot(self.time_credits, self.cpm, 'yo-', label='CPM')
                 if self.pb_data is not None and 'CPM' in self.pb_data:
                     axes[idx].plot(self.pb_data['Time_Min'], self.pb_data['CPM'], 'y--', alpha=0.6, label=pb_label)
                 axes[idx].set_title('Credits Per Minute (CPM)')
                 axes[idx].set_ylabel('CPM'); axes[idx].set_xlabel('Time (min)'); axes[idx].grid(True); axes[idx].legend(); idx += 1
                 # Credits
-                axes[idx].plot(self.current_run_time, self.creds, 'go-', label='Credits')
+                axes[idx].plot(self.time_credits, self.creds, 'go-', label='Credits')
                 if self.pb_data is not None and 'Credits' in self.pb_data:
                     axes[idx].plot(self.pb_data['Time_Min'], self.pb_data['Credits'], 'g--', alpha=0.6, label=pb_label)
                 axes[idx].set_title('Total Credits')
@@ -1376,11 +1424,8 @@ class WarframeTracker(QtCore.QObject):
             
             # KPM
             if self.track_kills:
-                # Choose data source based on preference (Logs vs Tab)
-                if self.track_logs and self.enemy_data["time"]:
-                    axes[idx].plot(self.enemy_data["time"], self.enemy_data["kpm"], 'r-', label='KPM (Log)')
-                else:
-                    axes[idx].plot(self.current_run_time, self.kpm, 'ro-', label='KPM (Tab)')
+                # Always use Tab data for the main KPM plot (Red)
+                axes[idx].plot(self.time_kills, self.kpm, 'ro-', label='KPM (Tab)')
                 
                 if self.pb_data is not None and 'KPM' in self.pb_data:
                     axes[idx].plot(self.pb_data['Time_Min'], self.pb_data['KPM'], 'r--', alpha=0.6, label=pb_label)
@@ -1392,6 +1437,15 @@ class WarframeTracker(QtCore.QObject):
                 axes[idx].legend()
                 idx += 1
                 
+            # Log KPM (Extra)
+            if self.add_log_kpm_plot:
+                axes[idx].plot(self.plot_data_log_kpm["t"], self.plot_data_log_kpm["y"], 'm-', label='Log KPM')
+                if self.pb_data is not None and 'Log_KPM' in self.pb_data:
+                    axes[idx].plot(self.pb_data['Time_Min'], self.pb_data['Log_KPM'], 'm--', alpha=0.6, label=pb_label)
+                axes[idx].set_title('Log KPM (Separate)')
+                axes[idx].set_ylabel('KPM'); axes[idx].set_xlabel('Time (min)'); axes[idx].grid(True); axes[idx].legend()
+                idx += 1
+
             # FPS
             if self.track_fps:
                 axes[idx].plot(self.plot_data_fps["t"], self.plot_data_fps["y"], 'k-', label='FPS')
