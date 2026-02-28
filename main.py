@@ -51,7 +51,7 @@ if __name__ == "__main__":
     pg.setConfigOption('background', '#191919')
     pg.setConfigOption('foreground', '#E6E6E6')
 
-    APP_VERSION = "v1.4.5"
+    APP_VERSION = "v1.5"
     # Show Settings Dialog
     dialog = SettingsDialog(version=APP_VERSION)
     if dialog.exec_() == QtWidgets.QDialog.Accepted:
