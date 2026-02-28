@@ -40,7 +40,7 @@ class WarframeTracker(QtCore.QObject):
     sig_ability_restored = QtCore.pyqtSignal()
 
     def __init__(self, settings):
-        super().__init__() #initializing the QObject parernt class
+        super().__init__() #initializing the QObject parent class
         self.settings = settings
         
         # Initialize QApplication early so we can use GUI elements (ROI Selector) in __init__
@@ -90,7 +90,7 @@ class WarframeTracker(QtCore.QObject):
         self.data_updated.connect(self.update_plot)
         self.request_overlay_toggle.connect(self.toggle_overlay)
         
-        # OCR intilasiation
+        # OCR initialization
         print("\n[Init] Initializing OCR Model... (This may take a moment)")
         try:
             self.reader = ocr.Reader(['en'], gpu=True)
@@ -390,7 +390,7 @@ class WarframeTracker(QtCore.QObject):
             
             effigy_cfg = self.settings.get("effigy_config", {})
             self.effigy_warner = AcolyteWarner(effigy_cfg, self.monitor, effigy_pos, effigy_font_size)
-            self.effigy_warner.show_preview("Effigy Warn\n(Drag & Scroll)")
+            self.effigy_warner.show_preview("Effigy Warning\n(Drag & Scroll)")
 
         # Data Structures Initialization
         if self.track_logs:
@@ -547,7 +547,7 @@ class WarframeTracker(QtCore.QObject):
         if self.acolyte_warner:
             self.acolyte_warner.show_preview()
         if self.effigy_warner:
-            self.effigy_warner.show_preview("Effigy Warn\n(Drag & Scroll)")
+            self.effigy_warner.show_preview("Effigy Warning\n(Drag & Scroll)")
 
     def load_config(self):
         try:
