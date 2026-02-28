@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import re
 import json
 import winsound
 import threading
@@ -174,6 +175,7 @@ class WarframeTracker(QtCore.QObject):
         self.last_tab_time = 0.0 
         self.time_credits = []
         self.time_kills = []
+        self.log_kill_history = []
         
         # Scan Area Defaults
         self.scan_left = self.monitor["left"] + int(self.monitor["width"] * 30 / 100)
@@ -190,10 +192,17 @@ class WarframeTracker(QtCore.QObject):
 
         # Set tracking flags from settings
         self.track_credits = self.settings['track_credits']
+        self.cpm_rolling = self.settings.get('cpm_rolling', False)
+        self.cpm_window = self.settings.get('cpm_window', 300)
+        self.show_high_cpm = self.settings.get('show_high_cpm', False)
         self.track_kills = self.settings['track_kills']
+        self.tab_kpm_rolling = self.settings.get('tab_kpm_rolling', False)
+        self.tab_kpm_window = self.settings.get('tab_kpm_window', 300)
         self.effigy_enabled = self.settings.get('effigy_warner_enabled', False)
         self.track_logs = self.settings.get('track_logs', False)
         self.add_log_kpm_plot = self.settings.get('add_log_kpm_plot', False)
+        self.log_kpm_rolling = self.settings.get('log_kpm_rolling', True)
+        self.log_kpm_window = self.settings.get('log_kpm_window', 60)
         self.track_fps = self.settings.get('track_fps', False)
         self.log_update_rate = self.settings.get('log_update_rate', 0.1)
         self.data_recording_interval_ms = self.settings.get('data_recording_rate', 100)
@@ -298,11 +307,18 @@ class WarframeTracker(QtCore.QObject):
             # Specific Configuration
             if p_type == 'cpm':
                 self.plot_cpm = p
-                p.setTitle("Credits Per Minute (CPM)", size="16pt")
+                title = "Credits Per Minute (CPM)"
+                if self.cpm_rolling:
+                    title = f"CPM (Rolling {self.cpm_window}s)"
+                p.setTitle(title, size="16pt")
                 p.setAxisItems({'left': LargeNumberAxisItem(orientation='left')})
                 p.setLabel('left', 'CPM')
                 self.curve_cpm = p.plot(pen='y', symbol='o')
                 self.curve_cpm_pb = p.plot(pen=pg.mkPen('y', style=QtCore.Qt.DotLine))
+                
+                if self.show_high_cpm:
+                    self.cpm_high_line = pg.InfiniteLine(angle=0, pen=pg.mkPen('w', style=QtCore.Qt.DashLine))
+                    p.addItem(self.cpm_high_line)
             
             elif p_type == 'creds':
                 self.plot_creds = p
@@ -313,7 +329,10 @@ class WarframeTracker(QtCore.QObject):
 
             elif p_type == 'kpm':
                 self.plot_kpm = p
-                p.setTitle("Kills Per Minute (KPM)", size="16pt")
+                title = "Kills Per Minute (KPM)"
+                if self.tab_kpm_rolling:
+                    title = f"KPM (Rolling {self.tab_kpm_window}s)"
+                p.setTitle(title, size="16pt")
                 p.setLabel('left', 'KPM')
                 self.curve_kpm = p.plot(pen='r', symbol='o')
                 self.curve_kpm_pb = p.plot(pen=pg.mkPen('r', style=QtCore.Qt.DotLine))
@@ -334,7 +353,10 @@ class WarframeTracker(QtCore.QObject):
 
             elif p_type == 'log_kpm':
                 self.plot_log_kpm = p
-                p.setTitle("Log KPM (Separate)", size="16pt")
+                title = "Log KPM (Cumulative)"
+                if self.log_kpm_rolling:
+                    title = f"Log KPM (Rolling {self.log_kpm_window}s)"
+                p.setTitle(title, size="16pt")
                 p.setLabel('left', 'KPM')
                 self.curve_log_kpm = p.plot(pen='m', name='Log KPM')
                 self.curve_log_kpm_pb = p.plot(pen=pg.mkPen('m', style=QtCore.Qt.DotLine))
@@ -635,6 +657,48 @@ class WarframeTracker(QtCore.QObject):
         try:
             print(f"[PB] Loading Personal Best data from: {os.path.basename(os.path.dirname(path))}/{os.path.basename(path)}")
             self.pb_data = pd.read_csv(path)
+            
+            # Check for Log KPM column variations and warn on mismatch
+            log_kpm_col = None
+            csv_kpm_mode = "Unknown"
+            csv_window = 0
+            
+            for col in self.pb_data.columns:
+                if col == "Log_KPM":
+                    log_kpm_col = col
+                    csv_kpm_mode = "Cumulative" # Legacy default
+                    break
+                if col.startswith("Log_KPM"):
+                    log_kpm_col = col
+                    if "Rolling" in col:
+                        csv_kpm_mode = "Rolling"
+                        m = re.search(r"Rolling (\d+)s", col)
+                        if m:
+                            csv_window = int(m.group(1))
+                    elif "Cumulative" in col:
+                        csv_kpm_mode = "Cumulative"
+                    break
+            
+            if log_kpm_col:
+                current_mode = "Rolling" if self.log_kpm_rolling else "Cumulative"
+                if csv_kpm_mode != "Unknown" and csv_kpm_mode != current_mode:
+                    print(f"[PB] Warning: KPM Mode Mismatch! Loaded: {csv_kpm_mode}, Current: {current_mode}")
+                elif csv_kpm_mode == "Rolling" and current_mode == "Rolling" and csv_window != 0 and csv_window != self.log_kpm_window:
+                    print(f"[PB] Warning: Rolling Window Mismatch! Loaded: {csv_window}s, Current: {self.log_kpm_window}s")
+                
+                # Normalize column name for internal use
+                if log_kpm_col != "Log_KPM":
+                    self.pb_data.rename(columns={log_kpm_col: 'Log_KPM'}, inplace=True)
+
+            # Normalize CPM column (Handle "CPM (Rolling ...)" etc.)
+            cpm_col = None
+            for col in self.pb_data.columns:
+                if col == "CPM" or col.startswith("CPM ("):
+                    cpm_col = col
+                    break
+            if cpm_col and cpm_col != "CPM":
+                self.pb_data.rename(columns={cpm_col: 'CPM'}, inplace=True)
+
             if 'Time' not in self.pb_data.columns:
                 print("[PB] Error: CSV missing 'Time' column.")
                 self.pb_data = None
@@ -696,6 +760,7 @@ class WarframeTracker(QtCore.QObject):
         self.cpm = []
         self.time_credits = []
         self.time_kills = []
+        self.log_kill_history = []
         self.initial_log_kills = None
         self.ee_log_start_offset = None
         
@@ -722,6 +787,9 @@ class WarframeTracker(QtCore.QObject):
         if hasattr(self, 'curve_cpm_pb'):
             self.curve_cpm_pb.setData([], [])
             self.curve_creds_pb.setData([], [])
+        
+        if hasattr(self, 'cpm_high_line'):
+            self.cpm_high_line.setValue(0)
         if hasattr(self, 'curve_kpm_pb'):
             self.curve_kpm_pb.setData([], [])
         if hasattr(self, 'curve_spawned_pb'):
@@ -781,10 +849,21 @@ class WarframeTracker(QtCore.QObject):
             self.log(f"CONFIGURATION: {self.settings['mode']} Mode")
             self.log(f"Monitor Resolution: {self.monitor['width']}x{self.monitor['height']}")
             self.log(f"Active Features: Credits={self.track_credits}, Kills={self.track_kills}, Logs={self.track_logs}, FPS={self.track_fps}")
+            
+            if self.track_credits:
+                cpm_mode_str = f"Rolling ({self.cpm_window}s)" if self.cpm_rolling else "Cumulative"
+                self.log(f"CPM Mode: {cpm_mode_str}")
+            
+            if self.track_kills:
+                tab_kpm_mode_str = f"Rolling ({self.tab_kpm_window}s)" if self.tab_kpm_rolling else "Cumulative"
+                self.log(f"Tab KPM Mode: {tab_kpm_mode_str}")
+
             if self.track_logs:
                  self.log(f"Log Path: {self.ee_log_path}")
                  if self.effigy_enabled:
                      self.log(f"Effigy Monitor: ON (Threshold: {self.effigy_threshold}). Warning triggers if allies < {self.effigy_threshold}.")
+                 kpm_mode_str = f"Rolling ({self.log_kpm_window}s)" if self.log_kpm_rolling else "Cumulative"
+                 self.log(f"Log KPM Mode: {kpm_mode_str}")
             self.log("-" * 40)
         except Exception as e:
             print(f"[CRITICAL] Could not create output folder. Error: {e}")
@@ -997,7 +1076,30 @@ class WarframeTracker(QtCore.QObject):
 
             if num > 0:
                 scan_succeeded = True
-                cpm_value = num / time_mins
+                
+                # CPM Calculation (Rolling vs Cumulative)
+                cpm_value = 0
+                if self.cpm_rolling:
+                    # Target time to look back to
+                    target_time = time_mins - (self.cpm_window / 60.0)
+                    
+                    # Find the closest past scan
+                    past_credits = 0
+                    past_time = 0.0
+                    
+                    if target_time > 0 and self.time_credits:
+                        # Find scan closest to target_time
+                        # Since list is sorted, we can just iterate or use min
+                        # Simple approach: Find index with min abs difference
+                        idx = min(range(len(self.time_credits)), key=lambda i: abs(self.time_credits[i] - target_time))
+                        past_credits = self.creds[idx]
+                        past_time = self.time_credits[idx]
+                    
+                    if time_mins - past_time > 0.001:
+                        cpm_value = (num - past_credits) / (time_mins - past_time)
+                else:
+                    cpm_value = num / time_mins
+
                 self.creds.append(num)
                 self.confidences.append(confidence)
                 self.cpm.append(cpm_value)
@@ -1047,7 +1149,26 @@ class WarframeTracker(QtCore.QObject):
             # Only append and update state if we have a valid number
             # (or if we are using logs where 0 is a valid state)
             if (self.track_logs) or (kills_num > 0):
-                kpm_value = kills_num / time_mins
+                
+                # Tab KPM Calculation (Rolling vs Cumulative)
+                kpm_value = 0
+                if self.tab_kpm_rolling:
+                    target_time = time_mins - (self.tab_kpm_window / 60.0)
+                    
+                    past_kills = 0
+                    past_time = 0.0
+                    
+                    if target_time > 0 and self.time_kills:
+                        # Find scan closest to target_time
+                        idx = min(range(len(self.time_kills)), key=lambda i: abs(self.time_kills[i] - target_time))
+                        past_kills = self.kills[idx]
+                        past_time = self.time_kills[idx]
+                    
+                    if time_mins - past_time > 0.001:
+                        kpm_value = (kills_num - past_kills) / (time_mins - past_time)
+                else:
+                    kpm_value = kills_num / time_mins
+
                 self.kills.append(kills_num)
                 self.kpm.append(kpm_value)
                 self.time_kills.append(time_mins)
@@ -1149,6 +1270,10 @@ class WarframeTracker(QtCore.QObject):
             self.curve_cpm.setData(self.time_credits[:limit], self.cpm[:limit])
             self.curve_creds.setData(self.time_credits[:limit], self.creds[:limit])
             
+            if self.show_high_cpm and hasattr(self, 'cpm_high_line'):
+                if len(self.cpm) > 0:
+                    self.cpm_high_line.setValue(max(self.cpm))
+            
         if self.track_kills and len(self.time_kills) > 0:
             n_time = len(self.time_kills)
             n_kpm = len(self.kpm)
@@ -1227,8 +1352,30 @@ class WarframeTracker(QtCore.QObject):
                  self.initial_log_kills = current_mission_kills
              
              log_calculated_kills = max(0, current_mission_kills - self.initial_log_kills)
-             if t > 0.017:
-                 log_calculated_kpm = log_calculated_kills / t
+             
+             if self.log_kpm_rolling:
+                 # Rolling KPM Logic
+                 self.log_kill_history.append((t, log_calculated_kills))
+                 
+                 # Window size in minutes (t is in minutes)
+                 window_min = self.log_kpm_window / 60.0
+                 
+                 # Remove data points older than window
+                 while self.log_kill_history and (t - self.log_kill_history[0][0] > window_min):
+                     self.log_kill_history.pop(0)
+                 
+                 if len(self.log_kill_history) > 1:
+                     dt = t - self.log_kill_history[0][0]
+                     dk = log_calculated_kills - self.log_kill_history[0][1]
+                     if dt > 0.001:
+                         log_calculated_kpm = dk / dt
+                 elif t > 0.017:
+                     # Fallback to cumulative if not enough history yet
+                     log_calculated_kpm = log_calculated_kills / t
+             else:
+                 # Cumulative Logic
+                 if t > 0.017:
+                     log_calculated_kpm = log_calculated_kills / t
 
         self.state_log_kpm = int(log_calculated_kpm)
             
@@ -1374,6 +1521,22 @@ class WarframeTracker(QtCore.QObject):
         
         try:
             df_master = pd.DataFrame(self.master_log)
+            
+            # Rename CPM column to include mode info
+            if 'CPM' in df_master.columns:
+                new_cpm_name = f"CPM (Rolling {self.cpm_window}s)" if self.cpm_rolling else "CPM (Cumulative)"
+                df_master.rename(columns={'CPM': new_cpm_name}, inplace=True)
+
+            # Rename Tab_KPM column to include mode info
+            if 'Tab_KPM' in df_master.columns:
+                new_tab_kpm_name = f"Tab_KPM (Rolling {self.tab_kpm_window}s)" if self.tab_kpm_rolling else "Tab_KPM (Cumulative)"
+                df_master.rename(columns={'Tab_KPM': new_tab_kpm_name}, inplace=True)
+
+            # Rename Log_KPM column to include mode info in the CSV header
+            if 'Log_KPM' in df_master.columns:
+                new_col_name = f"Log_KPM (Rolling {self.log_kpm_window}s)" if self.log_kpm_rolling else "Log_KPM (Cumulative)"
+                df_master.rename(columns={'Log_KPM': new_col_name}, inplace=True)
+            
             df_master.to_csv(save_path, index=False)
             self.log(f"[End] Data saved to: {save_path}", important=True)
         except Exception as e:
@@ -1413,7 +1576,7 @@ class WarframeTracker(QtCore.QObject):
                 axes[idx].plot(self.time_credits, self.cpm, 'yo-', label='CPM')
                 if self.pb_data is not None and 'CPM' in self.pb_data:
                     axes[idx].plot(self.pb_data['Time_Min'], self.pb_data['CPM'], 'y--', alpha=0.6, label=pb_label)
-                axes[idx].set_title('Credits Per Minute (CPM)')
+                axes[idx].set_title(f"Credits Per Minute ({'Rolling ' + str(self.cpm_window) + 's' if self.cpm_rolling else 'Cumulative'})")
                 axes[idx].set_ylabel('CPM'); axes[idx].set_xlabel('Time (min)'); axes[idx].grid(True); axes[idx].legend(); idx += 1
                 # Credits
                 axes[idx].plot(self.time_credits, self.creds, 'go-', label='Credits')
@@ -1430,7 +1593,7 @@ class WarframeTracker(QtCore.QObject):
                 if self.pb_data is not None and 'KPM' in self.pb_data:
                     axes[idx].plot(self.pb_data['Time_Min'], self.pb_data['KPM'], 'r--', alpha=0.6, label=pb_label)
                 
-                axes[idx].set_title('Kills Per Minute (KPM)')
+                axes[idx].set_title(f"Kills Per Minute ({'Rolling ' + str(self.tab_kpm_window) + 's' if self.tab_kpm_rolling else 'Cumulative'})")
                 axes[idx].set_ylabel('KPM')
                 axes[idx].set_xlabel('Time (min)')
                 axes[idx].grid(True)
@@ -1442,7 +1605,7 @@ class WarframeTracker(QtCore.QObject):
                 axes[idx].plot(self.plot_data_log_kpm["t"], self.plot_data_log_kpm["y"], 'm-', label='Log KPM')
                 if self.pb_data is not None and 'Log_KPM' in self.pb_data:
                     axes[idx].plot(self.pb_data['Time_Min'], self.pb_data['Log_KPM'], 'm--', alpha=0.6, label=pb_label)
-                axes[idx].set_title('Log KPM (Separate)')
+                axes[idx].set_title(f"Log KPM ({'Rolling ' + str(self.log_kpm_window) + 's' if self.log_kpm_rolling else 'Cumulative'})")
                 axes[idx].set_ylabel('KPM'); axes[idx].set_xlabel('Time (min)'); axes[idx].grid(True); axes[idx].legend()
                 idx += 1
 

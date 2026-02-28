@@ -12,11 +12,11 @@ This CSV file contains the raw data for your run. It is updated in real-time.
 | **Live** | *Requires Log Tracking.* Number of enemies currently alive on the map (from `EE.log`). |
 | **Spawned** | *Requires Log Tracking.* Total number of enemies spawned since mission start (from `EE.log`). |
 | **Credits** | Total credits accumulated. Updated when you press TAB. |
-| **CPM** | **Credits Per Minute**. Calculated as `Credits / (Time / 60)`. Data points are on fill forward basis untill a new data point is recorded. So expect to see many doubles|
+| **CPM** | **Credits Per Minute**. Depending on settings, this column header will indicate the mode: `CPM (Cumulative)` or `CPM (Rolling Xs)`. |
 | **Kills** | Total enemies killed. <br>• **Log Mode:** Calculated as `Spawned - Live`.<br>• **OCR Mode:** Read directly from the TAB menu. |
-| **KPM** | **Kills Per Minute**. Calculated as `Kills / (Time / 60)`. |
-| **Tab_KPM** | *Optional.* Snapshot KPM recorded only when TAB is pressed. Present if 'Track Kills' is enabled. |
-| **Log_KPM** | *Optional.* Continuous KPM calculated from `EE.log` data. Present if 'Track Logs' is enabled. |
+| **KPM** | **Kills Per Minute**. (Legacy column, usually mirrors Tab_KPM). |
+| **Tab_KPM** | Snapshot KPM recorded only when TAB is pressed. Header indicates mode: `Tab_KPM (Cumulative)` or `Tab_KPM (Rolling Xs)`. |
+| **Log_KPM** | Continuous KPM calculated from `EE.log` data. Header indicates mode: `Log_KPM (Cumulative)` or `Log_KPM (Rolling Xs)`. |
 | **FPS** | Frames Per Second (requires FPS Tracking). |
 | **Event** | Markers for specific actions (e.g., "Scan" indicates a TAB press). |
 
@@ -38,6 +38,21 @@ This text file records the internal events of the tracker.
 *   **[Tracker]**: Alerts for Acolyte spawns (`Triggering Acolyte Warner`) or Effigy status.
 *   **[Controller]**: Logs button presses if you use a controller to trigger scans or stop warnings.
 *   **[Debug]**: (If enabled) Logs EE.log offsets, file operations, and detailed error traces.
+
+## 4. Calculation Modes Explained
+
+The tracker allows switching between **Cumulative** and **Rolling** averages to suit different analysis needs.
+
+### Cumulative Average
+*   **Formula:** `Total Value / Total Run Time`
+*   **Behavior:** Represents the average efficiency of the *entire session*. It is very stable but becomes unresponsive to changes as the run gets longer.
+
+### Rolling Average
+*   **Formula:** `(Current Value - Value N seconds ago) / (Current Time - Time N seconds ago)`
+*   **Behavior:** Represents the efficiency of the *recent past* (defined by the Window Size setting).
+*   **Note for CPM/Tab KPM:** Since these rely on manual scans, the Rolling calculation searches for the scan closest to the target window time.
+    *   *Example:* If Window is 300s (5 min) and you scan at minute 10, it looks for a scan that happened around minute 5.
+    *   If no scan exists near the target time (e.g., start of run), it falls back to Cumulative calculation.
 
 ## 3. Debug Info (`DEBUG_INFO` Folder)
 

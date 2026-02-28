@@ -247,42 +247,90 @@ class SettingsDialog(QtWidgets.QDialog):
         self.check_credits.setToolTip("Enables tracking of Credits and Credits Per Minute (CPM) via OCR.")
         layout.addWidget(self.check_credits)
 
-        self.check_kills = QtWidgets.QCheckBox("Track Kills")
+        self.check_high_cpm = QtWidgets.QCheckBox("   └─ Show High CPM Line")
+        self.check_high_cpm.setChecked(False)
+        self.check_high_cpm.setToolTip("Displays a horizontal line on the live CPM graph at the highest CPM value reached.")
+        self.check_high_cpm.setEnabled(self.check_credits.isChecked())
+        self.check_credits.toggled.connect(self.check_high_cpm.setEnabled)
+        layout.addWidget(self.check_high_cpm)
+
+        # CPM Calculation Mode
+        cpm_calc_group = QtWidgets.QWidget()
+        cpm_calc_layout = QtWidgets.QHBoxLayout(cpm_calc_group)
+        cpm_calc_layout.setContentsMargins(25, 0, 0, 0) # Indent
+        
+        cpm_calc_layout.addWidget(QtWidgets.QLabel("CPM Mode:"))
+        self.combo_cpm_mode = QtWidgets.QComboBox()
+        self.combo_cpm_mode.addItems(["Cumulative Average", "Rolling Average"])
+        self.combo_cpm_mode.setToolTip("Cumulative: Average over entire run.\nRolling: Average over the last X seconds.")
+        self.combo_cpm_mode.currentIndexChanged.connect(self.update_rate_state)
+        cpm_calc_layout.addWidget(self.combo_cpm_mode)
+        
+        self.spin_cpm_window = QtWidgets.QSpinBox()
+        self.spin_cpm_window.setRange(60, 3600)
+        self.spin_cpm_window.setValue(300)
+        self.spin_cpm_window.setSuffix(" s")
+        cpm_calc_layout.addWidget(self.spin_cpm_window)
+        layout.addWidget(cpm_calc_group)
+
+        self.check_kills = QtWidgets.QCheckBox("Track Kills (Snapshot on Tab)")
         self.check_kills.setChecked(False)
-        self.check_kills.setToolTip("Enables tracking of Kills and Kills Per Minute (KPM).\nIf 'Track Enemy data' is also checked, this uses the accurate log data instead of OCR.")
+        self.check_kills.setToolTip("Enables tracking of Kills and Kills Per Minute (KPM) updated on Tab press.\nIf 'Track Log Data' is also checked, this uses log data for the snapshot instead of OCR.")
         layout.addWidget(self.check_kills)
 
         # Extras
         self.check_on_top = QtWidgets.QCheckBox("Window Always on Top")
-        self.check_on_top.setChecked(True)
-        self.check_on_top.setToolTip("Keeps the live graph window always visible on top of other applications.")
-        layout.addWidget(self.check_on_top)
+        
+        # Tab KPM Calculation Mode
+        tab_kpm_calc_group = QtWidgets.QWidget()
+        tab_kpm_calc_layout = QtWidgets.QHBoxLayout(tab_kpm_calc_group)
+        tab_kpm_calc_layout.setContentsMargins(25, 0, 0, 0) # Indent
+        
+        tab_kpm_calc_layout.addWidget(QtWidgets.QLabel("Tab KPM Mode:"))
+        self.combo_tab_kpm_mode = QtWidgets.QComboBox()
+        self.combo_tab_kpm_mode.addItems(["Cumulative Average", "Rolling Average"])
+        self.combo_tab_kpm_mode.setToolTip("Cumulative: Average over entire run.\nRolling: Average over the last X seconds.")
+        self.combo_tab_kpm_mode.currentIndexChanged.connect(self.update_rate_state)
+        tab_kpm_calc_layout.addWidget(self.combo_tab_kpm_mode)
+        
+        self.spin_tab_kpm_window = QtWidgets.QSpinBox()
+        self.spin_tab_kpm_window.setRange(60, 3600)
+        self.spin_tab_kpm_window.setValue(300)
+        self.spin_tab_kpm_window.setSuffix(" s")
+        tab_kpm_calc_layout.addWidget(self.spin_tab_kpm_window)
+        layout.addWidget(tab_kpm_calc_group)
 
-        sound_layout = QtWidgets.QHBoxLayout()
-        self.check_sound = QtWidgets.QCheckBox("Sound Alert on Scan")
-        self.check_sound.setChecked(False)
-        self.check_sound.setToolTip("Plays a short 'beep' sound to confirm a successful scan has been processed.")
-        sound_layout.addWidget(self.check_sound)
-        self.btn_sound_config = QtWidgets.QPushButton("Configure Sounds...")
-        self.btn_sound_config.clicked.connect(self.open_sound_config)
-        sound_layout.addWidget(self.btn_sound_config)
-        layout.addLayout(sound_layout)
-
-        self.check_debug = QtWidgets.QCheckBox("DEBUG MODE")
-        self.check_debug.setChecked(False)
-        self.check_debug.setToolTip("Enables detailed logging and saves screenshots of failed scans to a DEBUG_INFO folder.")
-        layout.addWidget(self.check_debug)
-
-        self.check_logs = QtWidgets.QCheckBox("Track Log Data for more Analysis -- WARNING: This reads your EE.log file")
+        self.check_logs = QtWidgets.QCheckBox("Track Log Data -- WARNING: This reads your EE.log file")
         self.check_logs.setStyleSheet("color: red; font-weight: bold;")
         self.check_logs.setChecked(False)
         self.check_logs.setToolTip("Reads Warframe's EE.log file in real-time to track enemy spawn/death counts.\nThis provides highly accurate, continuous KPM data.")
         layout.addWidget(self.check_logs)
         
         # Add Log KPM Plot Option
-        self.check_add_log_kpm = QtWidgets.QCheckBox("   └─ Add separate Log KPM Plot")
-        self.check_add_log_kpm.setToolTip("Adds an additional plot showing KPM derived from logs, regardless of the main KPM source.\nUseful for comparing OCR KPM vs Log KPM.")
+        self.check_add_log_kpm = QtWidgets.QCheckBox("   └─ Plot KPM (Continuous from Log)")
+        self.check_add_log_kpm.setToolTip("Adds an additional plot showing KPM derived from logs.\nUseful for comparing Snapshot KPM vs Continuous Log KPM.")
         layout.addWidget(self.check_add_log_kpm)
+
+        # Log KPM Calculation Mode
+        kpm_calc_group = QtWidgets.QWidget()
+        kpm_calc_layout = QtWidgets.QHBoxLayout(kpm_calc_group)
+        kpm_calc_layout.setContentsMargins(25, 0, 0, 0) # Indent
+        
+        kpm_calc_layout.addWidget(QtWidgets.QLabel("Log KPM Mode:"))
+        self.combo_kpm_mode = QtWidgets.QComboBox()
+        self.combo_kpm_mode.addItems(["Cumulative Average", "Rolling Average"])
+        self.combo_kpm_mode.setToolTip("Cumulative: Average over entire run.\nRolling: Average over the last X seconds (more responsive).")
+        self.combo_kpm_mode.currentIndexChanged.connect(self.update_rate_state)
+        kpm_calc_layout.addWidget(self.combo_kpm_mode)
+        
+        self.spin_kpm_window = QtWidgets.QSpinBox()
+        self.spin_kpm_window.setRange(10, 600)
+        self.spin_kpm_window.setValue(60)
+        self.spin_kpm_window.setSuffix(" s")
+        self.spin_kpm_window.setToolTip("Window size for Rolling Average.")
+        kpm_calc_layout.addWidget(self.spin_kpm_window)
+        
+        layout.addWidget(kpm_calc_group)
 
         # Acolyte Warner (only available if log tracking is on)
         acolyte_group = QtWidgets.QGroupBox("Acolyte Warner")
@@ -313,6 +361,25 @@ class SettingsDialog(QtWidgets.QDialog):
         effigy_layout.addWidget(self.btn_conf_effigy)
         effigy_group.setLayout(effigy_layout)
         layout.addWidget(effigy_group)
+
+        self.check_on_top.setChecked(True)
+        self.check_on_top.setToolTip("Keeps the live graph window always visible on top of other applications.")
+        layout.addWidget(self.check_on_top)
+
+        sound_layout = QtWidgets.QHBoxLayout()
+        self.check_sound = QtWidgets.QCheckBox("Sound Alert on Scan")
+        self.check_sound.setChecked(False)
+        self.check_sound.setToolTip("Plays a short 'beep' sound to confirm a successful scan has been processed.")
+        sound_layout.addWidget(self.check_sound)
+        self.btn_sound_config = QtWidgets.QPushButton("Configure Sounds...")
+        self.btn_sound_config.clicked.connect(self.open_sound_config)
+        sound_layout.addWidget(self.btn_sound_config)
+        layout.addLayout(sound_layout)
+
+        self.check_debug = QtWidgets.QCheckBox("DEBUG MODE")
+        self.check_debug.setChecked(False)
+        self.check_debug.setToolTip("Enables detailed logging and saves screenshots of failed scans to a DEBUG_INFO folder.")
+        layout.addWidget(self.check_debug)
 
         # FPS Checkbox
         self.check_fps = QtWidgets.QCheckBox("Track FPS (Requires PresentMon.exe)")
@@ -406,6 +473,7 @@ class SettingsDialog(QtWidgets.QDialog):
         
         self.check_logs.toggled.connect(self.update_rate_state)
         self.check_kills.toggled.connect(self.update_rate_state)
+        self.check_credits.toggled.connect(self.update_rate_state)
         self.update_rate_state()
 
         # Start Button
@@ -562,6 +630,21 @@ class SettingsDialog(QtWidgets.QDialog):
         self.check_effigy.setEnabled(log_tracking_enabled)
         self.btn_conf_effigy.setEnabled(log_tracking_enabled and self.check_effigy.isChecked())
         self.check_add_log_kpm.setEnabled(log_tracking_enabled)
+        
+        self.combo_cpm_mode.setEnabled(self.check_credits.isChecked())
+        is_cpm_rolling = (self.combo_cpm_mode.currentIndex() == 1)
+        self.spin_cpm_window.setVisible(is_cpm_rolling)
+        self.spin_cpm_window.setEnabled(self.check_credits.isChecked() and is_cpm_rolling)
+        
+        self.combo_tab_kpm_mode.setEnabled(kills_enabled)
+        is_tab_kpm_rolling = (self.combo_tab_kpm_mode.currentIndex() == 1)
+        self.spin_tab_kpm_window.setVisible(is_tab_kpm_rolling)
+        self.spin_tab_kpm_window.setEnabled(kills_enabled and is_tab_kpm_rolling)
+        
+        self.combo_kpm_mode.setEnabled(log_tracking_enabled)
+        is_log_kpm_rolling = (self.combo_kpm_mode.currentIndex() == 1)
+        self.spin_kpm_window.setVisible(is_log_kpm_rolling)
+        self.spin_kpm_window.setEnabled(log_tracking_enabled and is_log_kpm_rolling)
         
         enabled = self.check_logs.isChecked() or self.check_fps.isChecked()
         self.log_rate_container.setEnabled(enabled)
@@ -748,7 +831,15 @@ class SettingsDialog(QtWidgets.QDialog):
         self.spin_delay.setValue(data.get("scan_delay", 0.3))
         self.spin_cooldown.setValue(data.get("cooldown", 3.0))
         self.check_credits.setChecked(data.get("track_credits", True))
+        self.check_high_cpm.setChecked(data.get("show_high_cpm", False))
+        self.check_high_cpm.setEnabled(self.check_credits.isChecked())
+        self.combo_cpm_mode.setCurrentIndex(1 if data.get("cpm_rolling", False) else 0)
+        self.spin_cpm_window.setValue(data.get("cpm_window", 300))
+        
         self.check_kills.setChecked(data.get("track_kills", False))
+        self.combo_tab_kpm_mode.setCurrentIndex(1 if data.get("tab_kpm_rolling", False) else 0)
+        self.spin_tab_kpm_window.setValue(data.get("tab_kpm_window", 300))
+        
         self.check_effigy.setChecked(data.get("effigy_warner_enabled", False))
         self.check_on_top.setChecked(data.get("always_on_top", True))
         self.check_sound.setChecked(data.get("use_sound", False))
@@ -764,6 +855,8 @@ class SettingsDialog(QtWidgets.QDialog):
         })
         
         self.check_add_log_kpm.setChecked(data.get("add_log_kpm_plot", False))
+        self.combo_kpm_mode.setCurrentIndex(1 if data.get("log_kpm_rolling", True) else 0)
+        self.spin_kpm_window.setValue(data.get("log_kpm_window", 60))
         self.check_fps.setChecked(data.get("track_fps", False))
         self.check_overlay.setChecked(data.get("use_overlay", False))
         self.check_acolyte.setChecked(data.get("acolyte_warner_enabled", False))
@@ -795,7 +888,12 @@ class SettingsDialog(QtWidgets.QDialog):
             "scan_delay": self.spin_delay.value(),
             "cooldown": self.spin_cooldown.value(),
             "track_credits": self.check_credits.isChecked(),
+            "show_high_cpm": self.check_high_cpm.isChecked(),
+            "cpm_rolling": (self.combo_cpm_mode.currentIndex() == 1),
+            "cpm_window": self.spin_cpm_window.value(),
             "track_kills": self.check_kills.isChecked(),
+            "tab_kpm_rolling": (self.combo_tab_kpm_mode.currentIndex() == 1),
+            "tab_kpm_window": self.spin_tab_kpm_window.value(),
             "effigy_warner_enabled": self.check_effigy.isChecked(),
             "always_on_top": self.check_on_top.isChecked(),
             "use_sound": self.check_sound.isChecked(),
@@ -803,6 +901,8 @@ class SettingsDialog(QtWidgets.QDialog):
             "sound_config": self.sound_config,
             "track_logs": self.check_logs.isChecked(),
             "add_log_kpm_plot": self.check_add_log_kpm.isChecked(),
+            "log_kpm_rolling": (self.combo_kpm_mode.currentIndex() == 1),
+            "log_kpm_window": self.spin_kpm_window.value(),
             "track_fps": self.check_fps.isChecked(),
             "use_overlay": self.check_overlay.isChecked(),
             "overlay_config": self.overlay_config,

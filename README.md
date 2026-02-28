@@ -16,6 +16,7 @@ A Python-based overlay and tracker for Warframe that monitors Credits Per Minute
 - **Acolyte Warner:** Flashes a warning on-screen when an Acolyte is about to spawn, showing its name and a countdown.
 - **Effigy Replace Warner** When Effigy dissapeares (dead or no energy) a warning will be flashed to replace it.
 - **Sound Alerts:** Customizable sounds (Beeps or MP3/WAV) for successful scans, failures, and warnings.
+- **Flexible Metrics:** Choose between **Cumulative** (Run Average) or **Rolling** (Current Pace) calculations for CPM and KPM.
 ---
 
 ## Example
@@ -78,6 +79,19 @@ Copy all `.json` and `.png` files from your old `python_and_required_packages\LE
 * Example Bounding boxes:
 <img src="Bbox_example.png" alt="Bounding Box Example" width="100%" />
 
+## Cumulative vs. Rolling Average
+In the settings, you can choose how **CPM**, **Tab KPM**, and **Log KPM** are calculated.
+
+*   **Cumulative Average (Default):** Calculates the average over the *entire* run so far.
+    *   *Why use it?* It provides a stable, smooth line that represents your overall session performance. It is less affected by short pauses (like looting or Acolyte fights).
+    *   *Downside:* Late in a long run (e.g., 40+ mins), it becomes very slow to react. If your efficiency drops significantly at minute 45, the cumulative average will barely move because it is "weighted down" by the previous 45 minutes of good data.
+
+*   **Rolling Average:** Calculates the average over a specific time window (e.g., "Last 5 Minutes").
+    *   *Why use it?* It shows your *current* pace. If you stop killing for 1 minute, the graph will drop immediately. This is excellent for testing new strategies mid-run or spotting immediate efficiency drops.
+    *   *Downside:* The graph can be "jumpy" or volatile. For CPM/Tab KPM, if you don't scan frequently enough within the window, the data might be less accurate.
+
+
+
 ## Understanding the Logs
 For a detailed explanation of the CSV data, runtime logs, and debug files, please read **Log_Guide.md** included in the release folder.
 
@@ -94,3 +108,5 @@ For a detailed explanation of the CSV data, runtime logs, and debug files, pleas
 * Tracking the FPS requires `PresentMon.exe` to be run as Administrator hence you will be asked to rerun as Administrator.
 * ``EE.log`` based KPM works best in faster paced enviroments, so no earth non SP capture e.g. is recommended. Though this is for Secura LEcta Credit farm, where enemies spawn constantly. 
 * You can load already recorded runs (`master_run_log.csv`) from yourself or others into the tracker, this will add plots when you start so you can compare yourself to another Run (e.g. your own PB). You have the option to either let the PB run plot itself along with your data (recommended for readability and visability) or you can plot the entire PB plot and just have your current run plot live. Either way the `run_plots.png` and `enemy_plots.png` will include both runs across your recorded time window.
+
+
