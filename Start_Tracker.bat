@@ -12,7 +12,7 @@ if exist "%SUB_DIR%\python.exe" (
     set "PYTHON_EXE=.\%SUB_DIR%\python.exe"
     
     :: Check if scripts are in LECTA_SCRIPTS subfolder
-    if exist "%SUB_DIR%\LECTA_SCRIPTS\CPM_OOP.py" (
+    if exist "%SUB_DIR%\LECTA_SCRIPTS\main.py" (
         set "SCRIPT_DIR=.\%SUB_DIR%\LECTA_SCRIPTS"
     ) else (
         set "SCRIPT_DIR=.\%SUB_DIR%"
@@ -46,6 +46,18 @@ if exist "%SUB_DIR%\python.exe" (
 if not exist "easyocr_models" mkdir "easyocr_models"
 set "EASYOCR_MODULE_PATH=%~dp0easyocr_models"
 
+:: Fix for PyTorch DLL loading (WinError 1114)
+:: Try to find torch\lib and add to PATH
+if exist "%SUB_DIR%\torch\lib" (
+    set "PATH=%~dp0%SUB_DIR%\torch\lib;%PATH%"
+) else if exist "..\%SUB_DIR%\torch\lib" (
+    set "PATH=%~dp0..\%SUB_DIR%\torch\lib;%PATH%"
+) else if exist "%SUB_DIR%\Lib\site-packages\torch\lib" (
+    set "PATH=%~dp0%SUB_DIR%\Lib\site-packages\torch\lib;%PATH%"
+) else if exist "..\%SUB_DIR%\Lib\site-packages\torch\lib" (
+    set "PATH=%~dp0..\%SUB_DIR%\Lib\site-packages\torch\lib;%PATH%"
+)
+
 :: --- First Time Setup Check ---
 if not exist "%SCRIPT_DIR%\bbox_config_solo.json" (
     if not exist "%SCRIPT_DIR%\bbox_config_duo.json" (
@@ -59,7 +71,7 @@ if not exist "%SCRIPT_DIR%\bbox_config_solo.json" (
 
 :: --- Launch Main Tracker ---
 echo Launching Warframe Tracker...
-"%PYTHON_EXE%" "%SCRIPT_DIR%\CPM_OOP.py"
+"%PYTHON_EXE%" "%SCRIPT_DIR%\main.py"
 
 if %ERRORLEVEL% NEQ 0 (
     echo.

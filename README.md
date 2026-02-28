@@ -6,9 +6,9 @@ A Python-based overlay and tracker for Warframe that monitors Credits Per Minute
 - **Live Overlay:** Draggable stats (Credits,CPM, current ammount of alive enemies, KPM, FPS) over the game.
 - **Real-time Graphs:** Visualizes your farming efficiency.
 - **OCR Tracking:** Reads credits/kills from the Mission Progress screen (Tab).
-- **Enemy Tracking** Reads how many enemies are currently alive from ``EE.log``.
+- **Enemy Tracking:** Reads how many enemies are currently alive from ``EE.log``.
 - **FPS Tracker:** Uses PresentMon for an FPS plot.
-- **Live PB comparing** uploading a run that will plot live along your data to see how much better/worse you perform.
+- **Live PB comparing:** Upload a run that will plot live along your data to see how much better/worse you perform.
 - **Acolyte Warner:** Flashes a warning on-screen when an Acolyte is about to spawn, showing its name and a countdown.
 - **Effigy Replace Warner** When Effigy dissapeares (dead or no energy) a warning will be flashed to replace it.
 
@@ -44,24 +44,17 @@ If you have Python installed and want to run the raw scripts/edit the code yours
    ```bash
    Start_Tracker.bat
    ```
-   *(Or run `python CPM_OOP.py` directly)*
+   *(Or run `python main.py` directly)*
 
 ## Loading your Configurations into a new Version
-* I am regulary releasing new versions. To prevent that you have to complete the entire Setup (bounding box, folder selection, ect.) you have the option to load previous configurations via a button in the UI. To get there:
-```text
-First time setup detected...
-Launching Bounding Box Setup...
+**Recommended Method:**
+1. Launch the new version of the tracker.
+2. In the Settings menu, click the **"Import Config from Previous Version"** button (at the bottom).
+3. Select the **Main Folder** of your previous version (the folder containing `Start_Tracker.bat`).
+4. The tracker will automatically find and copy your bounding boxes, settings, and screenshots.
 
---- Bounding Box Setup ---
-Is this for Solo or Duo setup? [s/d]: s
-Draw Scan Area (Roster) [y/n]: n
-
-Setup complete.
-```
-* Alternatively you can copy all `.json`, `.png` from the old release under `python_and_required_packages\\LECTA_SCRIPTS` and insert them in the new release (same path).
-* I will provide `bbox_config_solo.json` and `bbox_config_duo.json` to the Source if new users want to simply load in configs and drag boxes arround instead of following the Setup Guide. The boxes in the Editor are labeled `Scan Area 1/2` and `Credits 1 4` or `Credits 2 1` indicating where each box belongs.
-
-
+**Manual Method:**
+Copy all `.json` and `.png` files from your old `python_and_required_packages\LECTA_SCRIPTS` folder and paste them into the same location in the new version.
 
 ---
 
@@ -80,6 +73,9 @@ Setup complete.
 
 * Example Bounding boxes:
 <img src="Bbox_example.png" alt="Bounding Box Example" width="100%" />
+
+## Understanding the Logs
+For a detailed explanation of the CSV data, runtime logs, and debug files, please read **Log_Guide.md** included in the release folder.
 
 ## Requirements
 - Warframe must be running on the **Primary Monitor**.

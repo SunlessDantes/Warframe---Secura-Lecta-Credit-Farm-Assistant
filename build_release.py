@@ -55,7 +55,7 @@ def main():
     
     # 4. Copy Scripts and Binaries from Source to LECTA_SCRIPTS
     script_files = [
-        "CPM_OOP.py", 
+        "main.py", 
         "bounding_box_setup.py", 
         "fps_tracker.py", 
         "log_reader.py",
