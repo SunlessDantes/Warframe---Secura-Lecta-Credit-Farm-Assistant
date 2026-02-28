@@ -33,7 +33,7 @@ def main():
     print(f"Created release directory: {release_dir}")
 
     # 1. Copy Start_Tracker.bat and README.md from Source
-    for file in ["Start_Tracker.bat", "README.md"]:
+    for file in ["Start_Tracker.bat", "README.md", "Log_Guide.md"]:
         src = os.path.join(source_dir, file)
         dst = os.path.join(release_dir, file)
         if os.path.exists(src):

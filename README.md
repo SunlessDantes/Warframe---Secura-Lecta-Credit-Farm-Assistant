@@ -6,10 +6,11 @@ A Python-based overlay and tracker for Warframe that monitors Credits Per Minute
 - **Live Overlay:** Draggable stats (Credits,CPM, current ammount of alive enemies, KPM, FPS) over the game.
 - **Real-time Graphs:** Visualizes your farming efficiency.
 - **OCR Tracking:** Reads credits/kills from the Mission Progress screen (Tab).
-- **Log Tracking:** Optionally reads `EE.log` for 100% accurate kill counts and spawn rates.
-- **FPS Tracker:** Uses PresentMon for accurate FPS analysis.
+- **Enemy Tracking** Reads how many enemies are currently alive from ``EE.log``.
+- **FPS Tracker:** Uses PresentMon for an FPS plot.
 - **Live PB comparing** uploading a run that will plot live along your data to see how much better/worse you perform.
 - **Acolyte Warner:** Flashes a warning on-screen when an Acolyte is about to spawn, showing its name and a countdown.
+- **Effigy Replace Warner** When Effigy dissapeares (dead or no energy) a warning will be flashed to replace it.
 
 ---
 
@@ -75,7 +76,7 @@ Setup complete.
 ## First Time Setup
 1. When you first launch the tracker, it will ask you to select a folder to save your run data. In that Folder you will find data of the run `master_run_log.csv` and plots
 2. It will then launch the **Bounding Box Setup**.
-3. Follow the on-screen instructions to draw boxes around the "Credits" text and the 5 possible credit values in the Mission Progress screen. (You can draw bad bbox's since there is a bbox editor which is more user friendly)
+3. Follow the on-screen instructions to draw boxes around the "Credits" text and the 5 possible credit values in the Mission Progress screen.
 
 * Example Bounding boxes:
 <img src="Bbox_example.png" alt="Bounding Box Example" width="100%" />

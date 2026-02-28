@@ -17,9 +17,11 @@ class LogReader:
         self.log_path = log_path
         self.live_enemies = 0
         self.total_spawned = 0
+        self.ally_live = 0
         self.running = False
         self.thread = None
         self.triggered_acolytes = [] # Changed from bool to list
+        self.general_events = [] # Queue for other events (Death, etc.)
         self.lock = threading.Lock() # For thread-safe list access
         self.last_acolyte_warning_time = 0
         
@@ -27,9 +29,11 @@ class LogReader:
         # Example: OnAgentCreated /Npc/Lancer Live 31 Spawned 53 Ticking 31
         self.live_pattern = re.compile(r"Live\s+(\d+)")
         self.spawned_pattern = re.compile(r"Spawned\s+(\d+)")
+        self.ally_live_pattern = re.compile(r"AllyLive\s+(\d+)")
 
         self.acolyte_taunt_pattern = re.compile(r"/Lotus/Sounds/Dialog/Taunts/Acolytes/(?P<tag>Duellist|Rogue|Control|Heavy)AcolyteTaunt")
         self.acolyte_scream_pattern = re.compile(r"ScreamDebuffAttachProj")
+        self.acolyte_defeat_pattern = re.compile(r"/Lotus/Sounds/Dialog/Taunts/Acolytes/(?P<tag>Duellist|Rogue|Control|Heavy)AcolyteDefeat")
     def start(self):
         """Starts the monitoring thread."""
         if self.thread is not None and self.thread.is_alive():
@@ -105,6 +109,15 @@ class LogReader:
                 self.triggered_acolytes.append((SCREAM_ACOLYTE_NAME, SCREAM_DURATION))
             return
 
+        # Acolyte Death (Defeat)
+        defeat_match = self.acolyte_defeat_pattern.search(line)
+        if defeat_match:
+            tag = defeat_match.group("tag")
+            if tag in ACOLYTE_MAP:
+                name = ACOLYTE_MAP[tag]['name']
+                with self.lock:
+                    self.general_events.append(f"{name} Dead")
+
         if "OnAgentCreated" in line:
             live_match = self.live_pattern.search(line)
             if live_match:
@@ -113,14 +126,25 @@ class LogReader:
             spawned_match = self.spawned_pattern.search(line)
             if spawned_match:
                 self.total_spawned = int(spawned_match.group(1))
+            
+            ally_match = self.ally_live_pattern.search(line)
+            if ally_match:
+                self.ally_live = int(ally_match.group(1))
 
     def get_stats(self):
-        """Returns a tuple (live_enemies, total_spawned)."""
-        return self.live_enemies, self.total_spawned
+        """Returns a tuple (live_enemies, total_spawned, ally_live)."""
+        return self.live_enemies, self.total_spawned, self.ally_live
     
     def check_and_clear_acolyte_warning(self):
         """Pops one acolyte warning from the queue if available."""
         with self.lock:
             if self.triggered_acolytes:
                 return self.triggered_acolytes.pop(0)
+        return None
+
+    def check_and_clear_general_events(self):
+        """Pops one general event from the queue if available."""
+        with self.lock:
+            if self.general_events:
+                return self.general_events.pop(0)
         return None

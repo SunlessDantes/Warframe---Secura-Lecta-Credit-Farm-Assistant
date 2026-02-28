@@ -6,68 +6,254 @@ import cv2 as cv
 import mss
 import numpy as np
 from screeninfo import get_monitors
+import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets, QtCore, QtGui
 
-class ROISelector(QtWidgets.QDialog):
-    def __init__(self, img_np, x_offset, y_offset):
-        super().__init__()
-        self.img_np = img_np
-        self.boxes = []
-        self.start_point = None
-        self.end_point = None
+class ConfigEditor(QtWidgets.QDialog):
+    def __init__(self, images, config_data, monitor_offset, screenshot_path, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Config Editor - Drag/Resize Boxes")
+        self.resize(1200, 800)
+        self.image = images # Just one image now
+        self.screenshot_path = screenshot_path
+        self.data = config_data
+        self.offset_x, self.offset_y = monitor_offset
         
-        # Convert BGRA (mss) to RGB (Qt)
-        img_rgb = cv.cvtColor(img_np, cv.COLOR_BGRA2RGB)
-        h, w, c = img_rgb.shape
-        self.qimg = QtGui.QImage(img_rgb.data, w, h, 3 * w, QtGui.QImage.Format_RGB888)
+        self.layout = QtWidgets.QVBoxLayout(self)
         
-        self.setWindowFlags(QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowStaysOnTopHint)
-        self.setCursor(QtCore.Qt.CrossCursor)
-        self.setGeometry(x_offset, y_offset, w, h)
+        # Instructions
+        lbl = QtWidgets.QLabel("Drag boxes to move. Drag handles to resize. Click Save to apply.")
+        self.layout.addWidget(lbl)
+
+        self.glw = pg.GraphicsLayoutWidget()
+        self.layout.addWidget(self.glw)
         
-    def paintEvent(self, event):
-        painter = QtGui.QPainter(self)
-        painter.drawImage(0, 0, self.qimg)
+        self.vb = self.glw.addViewBox()
+        self.vb.setAspectLocked()
+        self.vb.invertY() 
         
-        pen = QtGui.QPen(QtGui.QColor('red'), 2)
-        painter.setPen(pen)
+        self.img_item = pg.ImageItem()
+        self.update_image_display()
+        self.vb.addItem(self.img_item)
         
-        for x, y, w, h in self.boxes:
-            painter.drawRect(x, y, w, h)
+        self.rois = {}
+        self.labels = []
+        
+        self.load_boxes()
+        
+        # Tools Layout
+        tools_layout = QtWidgets.QHBoxLayout()
+
+        self.btn_add = QtWidgets.QPushButton("Add Missing Item...")
+        self.btn_add.clicked.connect(self.show_add_menu)
+        tools_layout.addWidget(self.btn_add)
+        
+        self.btn_retake = QtWidgets.QPushButton("Retake Background Image")
+        self.btn_retake.clicked.connect(self.retake_background)
+        tools_layout.addWidget(self.btn_retake)
+        self.layout.addLayout(tools_layout)
+
+        self.btn_save = QtWidgets.QPushButton("Save Changes")
+        self.btn_save.clicked.connect(self.save_and_close)
+        self.layout.addWidget(self.btn_save)
+
+    def update_image_display(self):
+        img = self.image
+        if img is None:
+            self.img_item.clear()
+            return
             
-        if self.start_point and self.end_point:
-            rect = QtCore.QRect(self.start_point, self.end_point).normalized()
-            painter.drawRect(rect)
+        if img.ndim == 2:
+            img_rgb = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
+        elif img.shape[2] == 4:
+            img_rgb = cv.cvtColor(img, cv.COLOR_BGRA2RGB)
+        else:
+            img_rgb = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+            
+        img_t = np.transpose(img_rgb, (1, 0, 2))
+        self.img_item.setImage(img_t)
 
-    def mousePressEvent(self, event):
-        if event.button() == QtCore.Qt.LeftButton:
-            self.start_point = event.pos()
-            self.end_point = event.pos()
-            self.update()
+    def add_roi(self, name, coords, color):
+        # coords: [l, t, r, b]
+        l, t, r, b = coords
+        x = l - self.offset_x
+        y = t - self.offset_y
+        w = r - l
+        h = b - t
+        
+        roi = pg.RectROI([x, y], [w, h], pen=pg.mkPen(color, width=2), removable=False)
+        roi.addScaleHandle([1, 1], [0, 0])
+        roi.addScaleHandle([0, 0], [1, 1])
+        self.vb.addItem(roi)
+        
+        lbl = pg.TextItem(name, color=color, anchor=(0, 1))
+        lbl.setPos(x, y)
+        self.vb.addItem(lbl)
+        
+        roi.sigRegionChanged.connect(lambda: lbl.setPos(roi.pos()))
+        
+        self.rois[name] = roi
+        self.labels.append(lbl)
 
-    def mouseMoveEvent(self, event):
-        if self.start_point:
-            self.end_point = event.pos()
-            self.update()
+    def load_boxes(self):
+        if 'scan_area' in self.data:
+            self.add_roi("Scan Area", self.data['scan_area'], 'g')
+        if 'credit_positions' in self.data:
+            for i, box in enumerate(self.data['credit_positions']):
+                self.add_roi(f"Credit {i+1}", box, 'y')
+        if self.data.get('scan_area_2'):
+            self.add_roi("Scan Area 2", self.data['scan_area_2'], 'c')
+        if self.data.get('credit_positions_2'):
+            for i, box in enumerate(self.data['credit_positions_2']):
+                self.add_roi(f"Credit 2-{i+1}", box, 'm')
+        if self.data.get('track_kills') and 'kills' in self.data and self.data['kills']:
+             self.add_roi("Kills", self.data['kills'], 'r')
 
-    def mouseReleaseEvent(self, event):
-        if event.button() == QtCore.Qt.LeftButton and self.start_point:
-            rect = QtCore.QRect(self.start_point, event.pos()).normalized()
-            self.boxes.append((rect.x(), rect.y(), rect.width(), rect.height()))
-            self.start_point = None
-            self.end_point = None
-            self.update()
+    def show_add_menu(self):
+        menu = QtWidgets.QMenu(self)
+        
+        # Check what is missing
+        if "Kills" not in self.rois:
+            menu.addAction("Kills Box", lambda: self.create_default_roi("Kills", 'r'))
+            
+        if "Scan Area 2" not in self.rois:
+            menu.addAction("Scan Area 2 (Backup)", lambda: self.create_default_roi("Scan Area 2", 'c'))
+            
+        # Check for Credit sets
+        has_creds_1 = any(f"Credit {i}" in self.rois for i in range(1, 6))
+        if not has_creds_1:
+            menu.addAction("Credit Positions (Primary - 5 boxes)", lambda: self.create_credit_set("", 'y'))
+            
+        has_creds_2 = any(f"Credit 2-{i}" in self.rois for i in range(1, 6))
+        if not has_creds_2:
+            menu.addAction("Credit Positions (Secondary - 5 boxes)", lambda: self.create_credit_set("2-", 'm'))
+
+        if not menu.isEmpty():
+            menu.exec_(QtGui.QCursor.pos())
+        else:
+            QtWidgets.QMessageBox.information(self, "Info", "All configurable items are already present.")
+
+    def create_default_roi(self, name, color):
+        # Place in center of view
+        vr = self.vb.viewRect()
+        cx = vr.center().x()
+        cy = vr.center().y()
+        w, h = 100, 50
+        
+        abs_l = int(cx + self.offset_x - w/2)
+        abs_t = int(cy + self.offset_y - h/2)
+        
+        self.add_roi(name, [abs_l, abs_t, abs_l+w, abs_t+h], color)
+
+    def create_credit_set(self, prefix, color):
+        # Create 5 boxes horizontally distributed
+        vr = self.vb.viewRect()
+        start_x = vr.left() + 50
+        y = vr.center().y()
+        w, h = 40, 30
+        gap = 10
+        
+        for i in range(1, 6):
+            name = f"Credit {prefix}{i}"
+            # Calculate absolute
+            rel_x = start_x + (i-1)*(w+gap)
+            abs_l = int(rel_x + self.offset_x)
+            abs_t = int(y + self.offset_y)
+            
+            self.add_roi(name, [abs_l, abs_t, abs_l+w, abs_t+h], color)
+
+    def save_and_close(self):
+        def get_abs_coords(roi):
+            pos = roi.pos()
+            size = roi.size()
+            l = int(pos.x() + self.offset_x)
+            t = int(pos.y() + self.offset_y)
+            r = int(l + size.x())
+            b = int(t + size.y())
+            return [l, t, r, b]
+
+        if "Scan Area" in self.rois:
+            self.data['scan_area'] = get_abs_coords(self.rois["Scan Area"])
+        
+        # Rebuild Credit Positions 1
+        new_creds = []
+        for i in range(1, 6):
+            name = f"Credit {i}"
+            if name in self.rois:
+                new_creds.append(get_abs_coords(self.rois[name]))
+        if new_creds:
+            self.data['credit_positions'] = new_creds
+        
+        if "Scan Area 2" in self.rois:
+            self.data['scan_area_2'] = get_abs_coords(self.rois["Scan Area 2"])
+        
+        # Rebuild Credit Positions 2
+        new_creds_2 = []
+        for i in range(1, 6):
+            name = f"Credit 2-{i}"
+            if name in self.rois:
+                new_creds_2.append(get_abs_coords(self.rois[name]))
+        if new_creds_2:
+            self.data['credit_positions_2'] = new_creds_2
+
+        if "Kills" in self.rois:
+            self.data['kills'] = get_abs_coords(self.rois["Kills"])
+        self.accept()
+
+    def retake_background(self):
+        original_text = self.btn_retake.text()
+        
+        # Countdown while visible
+        for i in range(3, 0, -1):
+            self.btn_retake.setText(f"Capturing in {i}...")
+            for _ in range(10):
+                QtWidgets.QApplication.processEvents()
+                time.sleep(0.1)
+                if not self.isVisible(): return
+
+        self.btn_retake.setText("Capturing...")
+        QtWidgets.QApplication.processEvents()
+        
+        # Hide briefly for the actual capture
+        self.hide()
+        QtWidgets.QApplication.processEvents()
+        time.sleep(0.2)
+
+        try:
+            with mss.mss() as sct:
+                # Try to find the monitor matching our offsets to get correct dimensions
+                monitor = None
+                for m in sct.monitors[1:]:
+                    if m["left"] == self.offset_x and m["top"] == self.offset_y:
+                        monitor = m
+                        break
+                
+                if monitor is None:
+                    w, h = 1920, 1080 # Fallback
+                    if self.image is not None:
+                        h, w = self.image.shape[:2]
+                    monitor = {"left": self.offset_x, "top": self.offset_y, "width": w, "height": h}
+                
+                img_np = np.array(sct.grab(monitor))
+                
+                # Update internal image
+                self.image = img_np
+                self.update_image_display()
+                
+                if self.screenshot_path:
+                    cv.imwrite(self.screenshot_path, img_np)
+                    print(f"Screenshot updated: {self.screenshot_path}")
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "Error", f"Failed to retake screenshot: {e}")
+        
+        self.show()
+        self.btn_retake.setText(original_text)
 
     def keyPressEvent(self, event):
         if event.key() in (QtCore.Qt.Key_Enter, QtCore.Qt.Key_Return):
             self.accept()
         elif event.key() == QtCore.Qt.Key_Escape:
-            self.boxes = []
-            self.reject()
-        elif event.key() == QtCore.Qt.Key_Z and (event.modifiers() & QtCore.Qt.ControlModifier):
-            if self.boxes:
-                self.boxes.pop()
-                self.update()
+            super().keyPressEvent(event)
 
 def get_primary_monitor():
     primary_x, primary_y = 0, 0
@@ -83,20 +269,17 @@ def get_primary_monitor():
             break
     return monitor
 
-def bbox_draw(monitor, message, save_path=None):
-    with mss.mss() as sct:
-        full_ss = np.array(sct.grab(monitor))
-        
-    if save_path:
-        cv.imwrite(save_path, full_ss)
-        print(f"Screenshot saved to: {save_path}")
-
-    print(f"\n {message}")
-    print("Drag with left click. Enter to confirm. Esc to cancel. Ctrl+Z to undo last box.")
+def take_screenshot(monitor, save_path, message):
+    print(f"\n{message}")
+    print("Switch to Warframe now! Taking screenshot in 4 seconds...")
+    time.sleep(4)
     
-    selector = ROISelector(full_ss, monitor["left"], monitor["top"])
-    selector.exec_() 
-    return selector.boxes
+    with mss.mss() as sct:
+        img = np.array(sct.grab(monitor))
+        
+    cv.imwrite(save_path, img)
+    print(f"Screenshot saved: {save_path}")
+    return img
 
 def save_config(config_path, data):
     try:
@@ -113,13 +296,11 @@ def main():
         QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps, True)
         app = QtWidgets.QApplication([])
 
+    # Dark Theme for Editor
+    pg.setConfigOption('background', '#191919')
+    pg.setConfigOption('foreground', '#E6E6E6')
+
     monitor = get_primary_monitor()
-    
-    credit_positions = []
-    track_kills = False
-    scan_left_2, scan_top_2, scan_right_2, scan_lower_2 = 0, 0, 0, 0
-    credit_positions_2 = []
-    left_kills, top_kills, right_kills, lower_kills = 0, 0, 0, 0
 
     application_path = os.path.dirname(os.path.abspath(__file__))
 
@@ -127,8 +308,7 @@ def main():
     print("   Warframe Bounding Box Setup Wizard")
     print("========================================")
     print("This tool will help you define the screen areas the tracker needs to see.")
-    print("You will need to switch to Warframe and draw boxes around specific elements.")
-    print("Ensure Warframe is running on your primary monitor.")
+    print("We will take a screenshot, then open an editor for you to draw boxes.")
     print("========================================\n")
     
     setup_mode = "Solo"
@@ -150,164 +330,38 @@ def main():
     screenshot_filename = "setup_screenshot_solo.png" if setup_mode == "Solo" else "setup_screenshot_duo.png"
     screenshot_path = os.path.join(application_path, screenshot_filename)
 
-    # 1. Scan Area
-    while True:
-        print("\n--- Step 1: Primary Scan Area ---")
-        print("The tracker needs to find the word 'Credits' in the Mission Progress screen.")
-        print("This serves as an anchor to locate the actual numbers.")
-        print("You will need to draw a box around the area where the text 'Credits' appears.")
-        confirm = input("Draw Scan Area (Roster) [y/n]: ").strip().lower()
-        if confirm == 'y':
-            print("Switch to Warframe now! Waiting 5 seconds...")
-            time.sleep(5)
-            scan_boxes = bbox_draw(monitor, "Please select 1 bounding box: Scan Area (Where 'Credits' text can appears)", save_path=screenshot_path)
-            
-            if len(scan_boxes) == 0:
-                print("Selection cancelled (ESC). Returning to prompt.")
-                continue
+    # --- Step 1: Capture TAB Menu ---
+    print("\n--- Step 1: Capture Mission Progress (TAB) ---")
+    print("Open Warframe. Pause/Solo mode recommended.")
+    print("Press and HOLD TAB (or open the menu) so the 'Credits' and numbers are visible.")
+    input("Press Enter when ready to capture in 4 seconds...")
+    img_tab = take_screenshot(monitor, screenshot_path, "Captured TAB menu.")
 
-            if len(scan_boxes) != 1:
-                print(f"Error: Exactly 1 bounding box is required. You selected {len(scan_boxes)}. Please try again.")
-                continue
-            
-            scan_left = monitor["left"] + scan_boxes[0][0]
-            scan_top = monitor["top"] + scan_boxes[0][1]
-            scan_right = scan_left + scan_boxes[0][2]
-            scan_lower = scan_top + scan_boxes[0][3]
-            print("Scan Area recorded.")
-            break
-        elif confirm == 'n':
-            return
+    # --- Step 3: Open Editor ---
+    print("\nOpening Config Editor...")
     
-    # 2. Credit Positions
-    while True:
-        print("\n--- Step 2: Credit Value Positions ---")
-        print("Once 'Credits' is found, the tracker looks for the actual number value.")
-        print("Warframe displays this number in one of 5 fixed positions relative to the text.")
-        print("You will need to draw 5 boxes, one for each possible location of the number.")
-        print("(Do not include the credit icon/symbol, just where the digits appear).")
-        confirm = input("Draw 5 Possible Credit integer Positions (do not include the tick symbol) [y/n]: ").strip().lower()
-        if confirm == 'y':
-            print("Switch to Warframe now! Waiting 5 seconds...")
-            time.sleep(5)
-            pos_boxes = bbox_draw(monitor, "Please select 5 bounding boxes: The 5 possible locations for the Credit Number")
-            
-            if len(pos_boxes) == 0:
-                print("Selection cancelled (ESC). Returning to prompt.")
-                continue
-
-            if len(pos_boxes) != 5:
-                print(f"Error: Exactly 5 bounding boxes required. You selected {len(pos_boxes)}. Please try again.")
-                continue
-            
-            credit_positions = []
-            for box in pos_boxes:
-                l = monitor["left"] + box[0]
-                t = monitor["top"] + box[1]
-                r = l + box[2]
-                b = t + box[3]
-                credit_positions.append([l, t, r, b])
-            break
-        elif confirm == 'n':
-            return
-
-    # 2b. Secondary Scan Area (Optional)
-    while True:
-        print("\n--- Step 3: Secondary Scan Area (Optional) ---")
-        print("Sometimes (e.g. in Index or specific missions), the 'Credits' row shifts position.")
-        print("If you notice the tracker failing to find credits in specific missions, set this up.")
-        print("It works exactly like Step 1 & 2 but for a backup location.")
-        confirm = input("Set up second Scan Area (sometimes the credits are pushed to the 2nd row)? [y/n]: ").strip().lower()
-        if confirm == 'y':
-            print("Switch to Warframe now! Waiting 5 seconds...")
-            time.sleep(5)
-            scan_boxes_2 = bbox_draw(monitor, "Select Secondary Scan Area (Backup)")
-            
-            if len(scan_boxes_2) == 0:
-                print("Selection cancelled (ESC). Returning to prompt.")
-                continue
-
-            if len(scan_boxes_2) == 1:
-                scan_left_2 = monitor["left"] + scan_boxes_2[0][0]
-                scan_top_2 = monitor["top"] + scan_boxes_2[0][1]
-                scan_right_2 = scan_left_2 + scan_boxes_2[0][2]
-                scan_lower_2 = scan_top_2 + scan_boxes_2[0][3]
-                
-                print("Secondary Scan Area recorded.")
-                
-                confirm_creds = input("Draw 5 Possible Credit integer Positions for Secondary Area (do not include the tick symbol) [y/n]: ").strip().lower()
-                if confirm_creds != 'y':
-                    print("Cancelled drawing credit positions. Restarting Secondary Area setup.")
-                    continue
-
-                print("Switch to Warframe now! Waiting 5 seconds...")
-                time.sleep(5)
-                pos_boxes_2 = bbox_draw(monitor, "Select 5 Credit Positions for Secondary Area")
-                
-                if len(pos_boxes_2) == 0:
-                    print("Selection cancelled (ESC). Restarting Secondary Area setup.")
-                    continue
-
-                if len(pos_boxes_2) == 5:
-                    for box in pos_boxes_2:
-                        l = monitor["left"] + box[0]
-                        t = monitor["top"] + box[1]
-                        r = l + box[2]
-                        b = t + box[3]
-                        credit_positions_2.append([l, t, r, b])
-                else:
-                    print(f"Error: Exactly 5 boxes required. You selected {len(pos_boxes_2)}. Restarting Secondary Area setup.")
-                    continue
-            else:
-                print(f"Error: Exactly 1 box required. You selected {len(scan_boxes_2)}. Try again.")
-                continue
-            break
-        elif confirm == 'n':
-            scan_left_2 = 0
-            credit_positions_2 = []
-            break
-
-    # 3. Kills
-    while True:
-        print("\n--- Step 4: Kill Tracking (Optional) ---")
-        print("If you want to track Kills via OCR (Optical Character Recognition),")
-        print("you need to define where the 'Kills' number appears.")
-        print("(Note: If you use the Log Reader feature, this is not strictly necessary but good as backup).")
-        kills_input = input(f"Track Kills ({setup_mode}) (Draw Box)? [y/n]: ").strip().lower()
-        if kills_input == 'y':
-            print("Switch to Warframe now! Waiting 5 seconds...")
-            time.sleep(5)
-            boxes = bbox_draw(monitor, f"Please select 1 bounding box: Kills ({setup_mode})")
-            
-            if len(boxes) == 0:
-                print("Selection cancelled (ESC). Returning to prompt.")
-                continue
-
-            if len(boxes) == 1:
-                left_kills = monitor["left"] + boxes[0][0]
-                top_kills = monitor["top"] + boxes[0][1]
-                right_kills = left_kills + boxes[0][2]
-                lower_kills = top_kills + boxes[0][3]
-                track_kills = True
-                break
-            else:
-                print(f"Error: Exactly 1 bounding box is required. You selected {len(boxes)}. Try again.")
-                continue
-        elif kills_input == 'n':
-            break
-
-    # Save
-    data = {
+    # Load existing config or create template
+    data = {}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r') as f:
+                data = json.load(f)
+        except: pass
+    
+    if not data:
+        data = {
         'setup_mode': setup_mode,
-        'scan_area': [scan_left, scan_top, scan_right, scan_lower],
-        'credit_positions': credit_positions,
-        'scan_area_2': [scan_left_2, scan_top_2, scan_right_2, scan_lower_2] if scan_left_2 > 0 else None,
-        'credit_positions_2': credit_positions_2 if credit_positions_2 else None,
-        'track_kills': track_kills,
-        'kills': [left_kills, top_kills, right_kills, lower_kills] if track_kills else None
+        'scan_area': [0, 0, 100, 100], # Dummy defaults
+        'credit_positions': [],
+        'track_kills': False
     }
-    save_config(config_path, data)
-    print("Setup complete.")
+
+    editor = ConfigEditor(img_tab, data, (monitor['left'], monitor['top']), screenshot_path)
+    if editor.exec_() == QtWidgets.QDialog.Accepted:
+        save_config(config_path, editor.data)
+        print("Setup complete.")
+    else:
+        print("Setup cancelled.")
 
 if __name__ == "__main__":
     main()

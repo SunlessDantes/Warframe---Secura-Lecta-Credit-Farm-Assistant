@@ -12,6 +12,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import time
 import json
 import winsound
+import threading
 import random
 import string
 import warnings
@@ -31,6 +32,7 @@ from screeninfo import get_monitors #pip install screeninfo
 from pyqtgraph.Qt import QtWidgets, QtCore, QtGui
 from log_reader import LogReader
 from fps_tracker import FPSTracker
+from bounding_box_setup import ConfigEditor
 warnings.filterwarnings("ignore", message=".pin_memory.")
 
 
@@ -70,126 +72,6 @@ class OverlayWindow(QtWidgets.QWidget):
                 x, y, w, h = box
                 painter.setPen(default_pen)
                 painter.drawRect(x, y, w, h)
-
-class ConfigEditor(QtWidgets.QDialog):
-    def __init__(self, img_np, config_data, monitor_offset, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Config Editor - Drag/Resize Boxes")
-        self.resize(1200, 800)
-        self.img_np = img_np
-        self.data = config_data
-        self.offset_x, self.offset_y = monitor_offset
-        
-        self.layout = QtWidgets.QVBoxLayout(self)
-        
-        # Instructions
-        lbl = QtWidgets.QLabel("Drag boxes to move. Drag handles to resize. Click Save to apply.")
-        self.layout.addWidget(lbl)
-
-        self.glw = pg.GraphicsLayoutWidget()
-        self.layout.addWidget(self.glw)
-        
-        self.vb = self.glw.addViewBox()
-        self.vb.setAspectLocked()
-        self.vb.invertY() 
-        
-        # Convert BGRA/BGR to RGB and Transpose for pyqtgraph (w, h, c)
-        if img_np.ndim == 2:
-            img_rgb = cv.cvtColor(img_np, cv.COLOR_GRAY2RGB)
-        elif img_np.shape[2] == 4:
-            img_rgb = cv.cvtColor(img_np, cv.COLOR_BGRA2RGB)
-        else:
-            img_rgb = cv.cvtColor(img_np, cv.COLOR_BGR2RGB)
-            
-        img_t = np.transpose(img_rgb, (1, 0, 2))
-        
-        self.img_item = pg.ImageItem(img_t)
-        self.vb.addItem(self.img_item)
-        
-        self.rois = {}
-        self.labels = []
-        
-        self.load_boxes()
-        
-        self.btn_save = QtWidgets.QPushButton("Save Changes")
-        self.btn_save.clicked.connect(self.save_and_close)
-        self.layout.addWidget(self.btn_save)
-
-    def add_roi(self, name, coords, color):
-        # coords: [l, t, r, b]
-        l, t, r, b = coords
-        x = l - self.offset_x
-        y = t - self.offset_y
-        w = r - l
-        h = b - t
-        
-        roi = pg.RectROI([x, y], [w, h], pen=pg.mkPen(color, width=2), removable=False)
-        roi.addScaleHandle([1, 1], [0, 0])
-        roi.addScaleHandle([0, 0], [1, 1])
-        self.vb.addItem(roi)
-        
-        lbl = pg.TextItem(name, color=color, anchor=(0, 1))
-        lbl.setPos(x, y)
-        self.vb.addItem(lbl)
-        
-        roi.sigRegionChanged.connect(lambda: lbl.setPos(roi.pos()))
-        
-        self.rois[name] = roi
-        self.labels.append(lbl)
-
-    def load_boxes(self):
-        if 'scan_area' in self.data:
-            self.add_roi("Scan Area", self.data['scan_area'], 'g')
-        if 'credit_positions' in self.data:
-            for i, box in enumerate(self.data['credit_positions']):
-                self.add_roi(f"Credit {i+1}", box, 'y')
-        if self.data.get('scan_area_2'):
-            self.add_roi("Scan Area 2", self.data['scan_area_2'], 'c')
-        if self.data.get('credit_positions_2'):
-            for i, box in enumerate(self.data['credit_positions_2']):
-                self.add_roi(f"Credit 2-{i+1}", box, 'm')
-        if self.data.get('track_kills') and 'kills' in self.data and self.data['kills']:
-             self.add_roi("Kills", self.data['kills'], 'r')
-
-    def save_and_close(self):
-        def get_abs_coords(roi):
-            pos = roi.pos()
-            size = roi.size()
-            l = int(pos.x() + self.offset_x)
-            t = int(pos.y() + self.offset_y)
-            r = int(l + size.x())
-            b = int(t + size.y())
-            return [l, t, r, b]
-
-        if "Scan Area" in self.rois:
-            self.data['scan_area'] = get_abs_coords(self.rois["Scan Area"])
-        if 'credit_positions' in self.data:
-            new_creds = []
-            for i in range(len(self.data['credit_positions'])):
-                name = f"Credit {i+1}"
-                if name in self.rois:
-                    new_creds.append(get_abs_coords(self.rois[name]))
-            self.data['credit_positions'] = new_creds
-        
-        if "Scan Area 2" in self.rois:
-            self.data['scan_area_2'] = get_abs_coords(self.rois["Scan Area 2"])
-        if 'credit_positions_2' in self.data:
-            new_creds_2 = []
-            for i in range(len(self.data['credit_positions_2'])):
-                name = f"Credit 2-{i+1}"
-                if name in self.rois:
-                    new_creds_2.append(get_abs_coords(self.rois[name]))
-            self.data['credit_positions_2'] = new_creds_2
-
-        if "Kills" in self.rois:
-            self.data['kills'] = get_abs_coords(self.rois["Kills"])
-        self.accept()
-
-    def keyPressEvent(self, event):
-        if event.key() in (QtCore.Qt.Key_Enter, QtCore.Qt.Key_Return):
-            self.save_and_close()
-        else:
-            super().keyPressEvent(event)
 
 class AcolyteConfigDialog(QtWidgets.QDialog):
     def __init__(self, current_config, parent=None):
@@ -243,6 +125,60 @@ class AcolyteConfigDialog(QtWidgets.QDialog):
             "audio_cue": self.check_audio.isChecked(),
             "color": color_hex,
             "opacity": self.slider_opacity.value()
+        }
+
+class EffigyConfigDialog(QtWidgets.QDialog):
+    def __init__(self, current_config, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Effigy/Ability Warn Configuration")
+        self.config = current_config
+        layout = QtWidgets.QVBoxLayout(self)
+        
+        # Audio Cue
+        self.check_audio = QtWidgets.QCheckBox("Enable Audio Alert")
+        self.check_audio.setChecked(self.config.get("audio_cue", True))
+        layout.addWidget(self.check_audio)
+
+        # Flash Color
+        color_layout = QtWidgets.QHBoxLayout()
+        color_layout.addWidget(QtWidgets.QLabel("Flash Color:"))
+        self.btn_color = QtWidgets.QPushButton()
+        c = self.config.get("color", "#0000FF")
+        self.btn_color.setStyleSheet(f"background-color: {c};")
+        self.btn_color.clicked.connect(self.pick_color)
+        color_layout.addWidget(self.btn_color)
+        layout.addLayout(color_layout)
+
+        # Opacity
+        opacity_layout = QtWidgets.QHBoxLayout()
+        opacity_layout.addWidget(QtWidgets.QLabel("Flash Opacity:"))
+        self.slider_opacity = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.slider_opacity.setRange(10, 100) # 10% to 100%
+        self.slider_opacity.setValue(self.config.get("opacity", 50))
+        self.slider_opacity.valueChanged.connect(lambda v: self.label_opacity.setText(f"{v}%"))
+        opacity_layout.addWidget(self.slider_opacity)
+        self.label_opacity = QtWidgets.QLabel(f"{self.slider_opacity.value()}%")
+        opacity_layout.addWidget(self.label_opacity)
+        layout.addLayout(opacity_layout)
+
+        # OK/Cancel buttons
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def pick_color(self):
+        color = QtWidgets.QColorDialog.getColor(QtGui.QColor(self.btn_color.styleSheet().split(":")[1].strip().rstrip(';')))
+        if color.isValid():
+            self.btn_color.setStyleSheet(f"background-color: {color.name()};")
+
+    def get_config(self):
+        style = self.btn_color.styleSheet()
+        color_hex = style.split(":")[1].strip().rstrip(';')
+        return {
+            "audio_cue": self.check_audio.isChecked(),
+            "color": color_hex,
+            "opacity": self.slider_opacity.value(),
         }
 
 class DraggableNumberOverlay(QtWidgets.QLabel):
@@ -364,6 +300,7 @@ class AcolyteWarner(QtWidgets.QLabel):
         self.font_size = font_size
         self.drag_pos = None
         self.acolyte_name = "Acolyte"
+        self.persistent = False
         
         self.setWindowFlags(QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowStaysOnTopHint | QtCore.Qt.Tool)
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
@@ -404,6 +341,7 @@ class AcolyteWarner(QtWidgets.QLabel):
         super().paintEvent(event)
 
     def start_warning(self, name, duration):
+        self.persistent = False
         self.acolyte_name = name
         self.end_time = time.perf_counter() + duration
         self.hide_time = 0
@@ -412,7 +350,26 @@ class AcolyteWarner(QtWidgets.QLabel):
         self.show()
         self.raise_()
 
+    def start_persistent_warning(self, text):
+        self.persistent = True
+        self.setText(text)
+        self.flash_on = True
+        self.timer.start(100)
+        self.show()
+        self.raise_()
+        self.adjustSize()
+
+    def stop_warning(self):
+        self.timer.stop()
+        self.hide()
+        self.persistent = False
+
     def update_tick(self):
+        if self.persistent:
+            self.flash_on = not self.flash_on
+            self.update()
+            return
+
         now = time.perf_counter()
         remaining = self.end_time - now
 
@@ -448,10 +405,10 @@ class AcolyteWarner(QtWidgets.QLabel):
             self.font_size = max(12, self.font_size - 4)
         self.update_style()
 
-    def show_preview(self):
+    def show_preview(self, text="Acolyte Warner\n(Drag & Scroll)"):
         """Shows the overlay for positioning, without flashing."""
         self.timer.stop() # Ensure no flashing is happening
-        self.setText("Acolyte Warner\n(Drag & Scroll)")
+        self.setText(text)
         self.flash_on = True # Solid background
         self.show()
         self.adjustSize()
@@ -502,6 +459,12 @@ class SettingsDialog(QtWidgets.QDialog):
         self.acolyte_config = {
             "audio_cue": True,
             "color": "#FF0000",
+            "opacity": 50
+        }
+        # Default Effigy Config
+        self.effigy_config = {
+            "audio_cue": True,
+            "color": "#0000FF",
             "opacity": 50
         }
 
@@ -584,12 +547,12 @@ class SettingsDialog(QtWidgets.QDialog):
         self.check_sound.setToolTip("Plays a short 'beep' sound to confirm a successful scan has been processed.")
         layout.addWidget(self.check_sound)
 
-        self.check_debug = QtWidgets.QCheckBox("Debug: Save Images on Fail")
+        self.check_debug = QtWidgets.QCheckBox("DEBUG MODE")
         self.check_debug.setChecked(False)
-        self.check_debug.setToolTip("If an OCR scan fails to read a number, it will save the screenshot to the run's output folder for troubleshooting.")
+        self.check_debug.setToolTip("Enables detailed logging and saves screenshots of failed scans to a DEBUG_INFO folder.")
         layout.addWidget(self.check_debug)
 
-        self.check_logs = QtWidgets.QCheckBox("Track Enemy data. WARNING THIS READS LOG.EE DATA")
+        self.check_logs = QtWidgets.QCheckBox("Track Log Data for more Analysis -- WARNING: This reads your EE.log file")
         self.check_logs.setStyleSheet("color: red; font-weight: bold;")
         self.check_logs.setChecked(False)
         self.check_logs.setToolTip("Reads Warframe's EE.log file in real-time to track enemy spawn/death counts.\nThis provides highly accurate, continuous KPM data.")
@@ -615,6 +578,21 @@ class SettingsDialog(QtWidgets.QDialog):
         acolyte_layout.addWidget(self.btn_conf_acolyte)
         acolyte_group.setLayout(acolyte_layout)
         layout.addWidget(acolyte_group)
+
+        # Effigy Warner (Moved under Log Tracking)
+        effigy_group = QtWidgets.QGroupBox("Effigy Warner")
+        effigy_layout = QtWidgets.QHBoxLayout()
+        self.check_effigy = QtWidgets.QCheckBox("Enable")
+        self.check_effigy.setToolTip("Flashes a warning when 'AllyLive' count drops (indicating Effigy death).\nRequires Log Tracking.")
+        self.check_effigy.toggled.connect(lambda c: self.btn_conf_effigy.setEnabled(c))
+        effigy_layout.addWidget(self.check_effigy)
+        
+        self.btn_conf_effigy = QtWidgets.QPushButton("Configure...")
+        self.btn_conf_effigy.setEnabled(False)
+        self.btn_conf_effigy.clicked.connect(self.open_effigy_config)
+        effigy_layout.addWidget(self.btn_conf_effigy)
+        effigy_group.setLayout(effigy_layout)
+        layout.addWidget(effigy_group)
 
         # FPS Checkbox
         self.check_fps = QtWidgets.QCheckBox("Track FPS (Requires PresentMon.exe)")
@@ -734,6 +712,11 @@ class SettingsDialog(QtWidgets.QDialog):
         if dlg.exec_() == QtWidgets.QDialog.Accepted:
             self.acolyte_config = dlg.get_config()
 
+    def open_effigy_config(self):
+        dlg = EffigyConfigDialog(self.effigy_config, self)
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            self.effigy_config = dlg.get_config()
+
     def open_overlay_config(self):
         dlg = OverlayConfigDialog(self.overlay_config, self)
         if dlg.exec_() == QtWidgets.QDialog.Accepted:
@@ -810,6 +793,8 @@ class SettingsDialog(QtWidgets.QDialog):
         
         self.check_acolyte.setEnabled(log_tracking_enabled)
         self.btn_conf_acolyte.setEnabled(log_tracking_enabled and self.check_acolyte.isChecked())
+        self.check_effigy.setEnabled(log_tracking_enabled)
+        self.btn_conf_effigy.setEnabled(log_tracking_enabled and self.check_effigy.isChecked())
         self.check_log_kpm.setEnabled(log_tracking_enabled and kills_enabled)
         
         enabled = self.check_logs.isChecked() or self.check_fps.isChecked()
@@ -941,8 +926,6 @@ class SettingsDialog(QtWidgets.QDialog):
             img = None
             if os.path.exists(screenshot_path):
                 img = cv.imread(screenshot_path, cv.IMREAD_UNCHANGED)
-                if img is not None:
-                    print(f"[Config] Loaded screenshot from: {screenshot_path}")
             
             if img is None:
                 QtWidgets.QMessageBox.warning(self, "Screenshot Missing", f"Could not find the setup screenshot:\n{screenshot_filename}\n\nCannot edit configuration without the reference image.\nPlease run 'Complete New Bounding Box' to create one.")
@@ -952,7 +935,7 @@ class SettingsDialog(QtWidgets.QDialog):
             time.sleep(0.2)
 
             try:
-                editor = ConfigEditor(img, data, (monitor['left'], monitor['top']), self)
+                editor = ConfigEditor(img, data, (monitor['left'], monitor['top']), screenshot_path, self)
                 if editor.exec_() == QtWidgets.QDialog.Accepted:
                     with open(config_path, 'w') as f:
                         json.dump(editor.data, f, indent=4)
@@ -995,6 +978,7 @@ class SettingsDialog(QtWidgets.QDialog):
             self.spin_cooldown.setValue(data.get("cooldown", 3.0))
             self.check_credits.setChecked(data.get("track_credits", True))
             self.check_kills.setChecked(data.get("track_kills", False))
+            self.check_effigy.setChecked(data.get("effigy_warner_enabled", False))
             self.check_on_top.setChecked(data.get("always_on_top", True))
             self.check_sound.setChecked(data.get("use_sound", False))
             self.check_debug.setChecked(data.get("debug_mode", False))
@@ -1005,6 +989,8 @@ class SettingsDialog(QtWidgets.QDialog):
             self.check_acolyte.setChecked(data.get("acolyte_warner_enabled", False))
             if "acolyte_config" in data:
                 self.acolyte_config = data["acolyte_config"]
+            if "effigy_config" in data:
+                self.effigy_config = data["effigy_config"]
 
             if "overlay_config" in data:
                 self.overlay_config = data["overlay_config"]
@@ -1032,6 +1018,7 @@ class SettingsDialog(QtWidgets.QDialog):
             "cooldown": self.spin_cooldown.value(),
             "track_credits": self.check_credits.isChecked(),
             "track_kills": self.check_kills.isChecked(),
+            "effigy_warner_enabled": self.check_effigy.isChecked(),
             "always_on_top": self.check_on_top.isChecked(),
             "use_sound": self.check_sound.isChecked(),
             "debug_mode": self.check_debug.isChecked(),
@@ -1042,6 +1029,7 @@ class SettingsDialog(QtWidgets.QDialog):
             "overlay_config": self.overlay_config,
             "acolyte_warner_enabled": self.check_acolyte.isChecked(),
             "acolyte_config": self.acolyte_config,
+            "effigy_config": self.effigy_config,
             "data_recording_rate": self.combo_rec_rate.currentData(),
             "log_update_rate": self.combo_log_rate.currentData(),
             "output_path": self.line_path.text(),
@@ -1056,6 +1044,8 @@ class WarframeTracker(QtCore.QObject):
     sig_stop_log_timer = QtCore.pyqtSignal()
     request_run_end = QtCore.pyqtSignal()
     sig_update_overlay_data = QtCore.pyqtSignal(dict)
+    sig_ability_warning = QtCore.pyqtSignal()
+    sig_ability_restored = QtCore.pyqtSignal()
 
     def __init__(self, settings):
         super().__init__() #initializing the QObject parernt class
@@ -1068,15 +1058,6 @@ class WarframeTracker(QtCore.QObject):
             QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps, True)
             self.app = QtWidgets.QApplication([])
 
-        self.creds = []
-        self.confidences = []
-        self.credit_positions = []
-        self.kills = []
-        self.kpm = []
-        self.current_run_time = []
-        self.cpm = []
-        self.start_time = None
-        self.last_tab_time = 0.0 
         self.cooldown_duration = self.settings['cooldown']
         self.run_output_path = None
         self.overlay = None
@@ -1092,17 +1073,18 @@ class WarframeTracker(QtCore.QObject):
         self.tab_held = False
         
         self.track_logs = self.settings.get('track_logs', False)
-        self.use_log_kpm = self.settings.get('use_log_kpm', True)
-        self.track_fps = self.settings.get('track_fps', False)
-        self.log_update_rate = self.settings.get('log_update_rate', 0.1)
         self.acolyte_warner = None
+        self.effigy_warner = None
         self.overlay_positions_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "overlay_positions.json")
-        self.data_recording_interval_ms = self.settings.get('data_recording_rate', 100)
-        self.show_pb_live = self.settings.get('show_pb_live', True)
         self.pb_data = None # DataFrame for Personal Best
-        
-
+        self.is_effigy_dead = False
+        self.last_ally_live = 0
         self.log_reader = None
+        self.log_file = None
+        self.debug_dir = None
+        self.ee_log_path = os.path.expandvars(r"%LOCALAPPDATA%\Warframe\EE.log")
+        self.ee_log_start_offset = None
+        
         self.fps_tracker = FPSTracker()
         self.log_timer = QtCore.QTimer()
         self.log_timer.timeout.connect(self.update_log_data)
@@ -1111,6 +1093,10 @@ class WarframeTracker(QtCore.QObject):
         self.sig_stop_log_timer.connect(self._stop_log_timer_slot)
         self.request_run_end.connect(self.run_end)
         self.sig_update_overlay_data.connect(self._update_overlay_slot)
+        self.sig_ability_warning.connect(self.trigger_ability_warning)
+        self.sig_ability_restored.connect(self.clear_ability_warning)
+        self.data_updated.connect(self.update_plot)
+        self.request_overlay_toggle.connect(self.toggle_overlay)
         
         # OCR intilasiation
         print("\n[Init] Initializing OCR Model... (This may take a moment)")
@@ -1131,7 +1117,67 @@ class WarframeTracker(QtCore.QObject):
             if m["left"] == primary_x and m["top"] == primary_y:
                 self.monitor = m
                 break
+
+        self.win = None
+        self.setup_hotkeys()
         
+        # --- Controller Setup (PS4 L3 -> Tab) ---
+        self.joystick = None
+        self.l3_pressed = False
+        self.init_controller()
+        self.controller_timer = QtCore.QTimer()
+        self.controller_timer.timeout.connect(self.poll_controller)
+        self.controller_timer.start(16) # Poll at ~60Hz
+
+        # Setup the session (GUI, Config, etc.)
+        self.setup_session()
+    
+    def get_active_window_title(self):
+        try:
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+            buff = ctypes.create_unicode_buffer(length + 1)
+            ctypes.windll.user32.GetWindowTextW(hwnd, buff, length + 1)
+            return buff.value
+        except:
+            return "Unknown"
+
+    def log(self, message, important=False, is_error=False):
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        run_time_str = ""
+        if hasattr(self, 'start_time') and self.start_time is not None:
+            elapsed = time.perf_counter() - self.start_time
+            mins = int(elapsed // 60)
+            secs = int(elapsed % 60)
+            run_time_str = f" [T+{mins:02d}:{secs:02d}]"
+
+        log_line = f"[{timestamp}]{run_time_str} {message}"
+        
+        if self.log_file:
+            try:
+                self.log_file.write(log_line + "\n")
+                self.log_file.flush()
+            except: pass
+            
+        if important or is_error:
+            print(message)
+
+    def setup_session(self):
+        """Initializes or re-initializes the tracker session based on current settings."""
+        
+        # Reset Data Containers
+        self.creds = []
+        self.confidences = []
+        self.credit_positions = []
+        self.kills = []
+        self.kpm = []
+        self.current_run_time = []
+        self.cpm = []
+        self.start_time = None
+        self.last_tab_time = 0.0 
+        
+        # Scan Area Defaults
         self.scan_left = self.monitor["left"] + int(self.monitor["width"] * 30 / 100)
         self.scan_top = self.monitor["top"] + int(self.monitor["height"] * 10 / 100)
         self.scan_right = self.scan_left + int(self.monitor["width"] * 30 / 100)
@@ -1147,11 +1193,21 @@ class WarframeTracker(QtCore.QObject):
         # Set tracking flags from settings
         self.track_credits = self.settings['track_credits']
         self.track_kills = self.settings['track_kills']
+        self.effigy_enabled = self.settings.get('effigy_warner_enabled', False)
+        self.track_logs = self.settings.get('track_logs', False)
+        self.use_log_kpm = self.settings.get('use_log_kpm', True)
+        self.track_fps = self.settings.get('track_fps', False)
+        self.log_update_rate = self.settings.get('log_update_rate', 0.1)
+        self.data_recording_interval_ms = self.settings.get('data_recording_rate', 100)
+        self.show_pb_live = self.settings.get('show_pb_live', True)
         self.scan_delay = self.settings['scan_delay']
         self.always_on_top = self.settings['always_on_top']
         self.use_sound = self.settings['use_sound']
         self.debug_mode = self.settings['debug_mode']
         self.use_overlay = self.settings.get('use_overlay', False)
+        
+        self.effigy_threshold = 3 if self.settings.get('mode', 'Solo') == 'Duo' else 2
+        print(f"[Init] Effigy Warning Threshold set to {self.effigy_threshold} (Mode: {self.settings.get('mode', 'Solo')})")
 
         # Initial Setup Loop
         while True:
@@ -1177,6 +1233,9 @@ class WarframeTracker(QtCore.QObject):
                 sys.exit(0)
 
         #Setup the Live GUI (Must be on the main thread)
+        if self.win is not None:
+            self.win.close()
+            
         self.win = pg.GraphicsLayoutWidget(show=True, title="Warframe Tracker")
         if self.always_on_top:
             self.win.setWindowFlags(self.win.windowFlags() | QtCore.Qt.WindowStaysOnTopHint)
@@ -1275,6 +1334,14 @@ class WarframeTracker(QtCore.QObject):
                 self.curve_fps = p.plot(pen='c', name='FPS')
                 self.curve_fps_pb = p.plot(pen=pg.mkPen('c', style=QtCore.Qt.DotLine))
 
+        # --- Load Overlay Positions (Early) ---
+        self.saved_positions = {}
+        if os.path.exists(self.overlay_positions_file):
+            try:
+                with open(self.overlay_positions_file, 'r') as f:
+                    self.saved_positions = json.load(f)
+            except: pass
+
         # --- Overlay Initialization ---
         self.number_overlays = {}
         if self.use_overlay:
@@ -1291,10 +1358,16 @@ class WarframeTracker(QtCore.QObject):
                 nonlocal current_y
                 cfg = ov_cfg.get(key, {"show": True, "color": defaults[key]})
                 if cfg.get("show", True):
-                    pos = QtCore.QPoint(start_x, current_y)
-                    self.number_overlays[key] = DraggableNumberOverlay(key, cfg.get("color", defaults[key]), self.monitor, pos)
+                    if key in self.saved_positions:
+                        saved = self.saved_positions[key]
+                        pos = QtCore.QPoint(saved['x'], saved['y'])
+                        font_size = saved.get('font_size', 24)
+                        self.number_overlays[key] = DraggableNumberOverlay(key, cfg.get("color", defaults[key]), self.monitor, pos, font_size)
+                    else:
+                        pos = QtCore.QPoint(start_x, current_y)
+                        self.number_overlays[key] = DraggableNumberOverlay(key, cfg.get("color", defaults[key]), self.monitor, pos)
+                        current_y += 40 # Offset for next overlay
                     self.number_overlays[key].show()
-                    current_y += 40 # Offset for next overlay
 
             if self.track_credits: create_ov("CPM")
             if self.track_kills: create_ov("KPM")
@@ -1303,20 +1376,28 @@ class WarframeTracker(QtCore.QObject):
 
         # --- Acolyte Warner Initialization ---
         if self.track_logs and self.settings.get("acolyte_warner_enabled", False):
-            # Load position from dedicated file
             acolyte_pos = None
             acolyte_font_size = 48
-            if os.path.exists(self.overlay_positions_file):
-                with open(self.overlay_positions_file, 'r') as f:
-                    positions = json.load(f)
-                    if 'acolyte' in positions:
-                        acolyte_pos = QtCore.QPoint(positions['acolyte']['x'], positions['acolyte']['y'])
-                        acolyte_font_size = positions['acolyte'].get('font_size', 48)
+            if 'acolyte' in self.saved_positions:
+                acolyte_pos = QtCore.QPoint(self.saved_positions['acolyte']['x'], self.saved_positions['acolyte']['y'])
+                acolyte_font_size = self.saved_positions['acolyte'].get('font_size', 48)
 
             acolyte_cfg = self.settings.get("acolyte_config", {})
             self.acolyte_warner = AcolyteWarner(acolyte_cfg, self.monitor, acolyte_pos, acolyte_font_size)
             print("[Init] Acolyte Warner enabled and initialized.")
-            self.acolyte_warner.show_preview()
+            self.acolyte_warner.show_preview("Acolyte Warner\n(Drag & Scroll)")
+
+        # --- Effigy Warner Initialization ---
+        if self.track_logs and self.effigy_enabled:
+            effigy_pos = None
+            effigy_font_size = 48
+            if 'effigy' in self.saved_positions:
+                effigy_pos = QtCore.QPoint(self.saved_positions['effigy']['x'], self.saved_positions['effigy']['y'])
+                effigy_font_size = self.saved_positions['effigy'].get('font_size', 48)
+            
+            effigy_cfg = self.settings.get("effigy_config", {})
+            self.effigy_warner = AcolyteWarner(effigy_cfg, self.monitor, effigy_pos, effigy_font_size)
+            self.effigy_warner.show_preview("Effigy Warn\n(Drag & Scroll)")
 
         # Data Structures Initialization
         if self.track_logs:
@@ -1331,18 +1412,6 @@ class WarframeTracker(QtCore.QObject):
         if self.track_fps:
             self.plot_data_fps = {"t": [], "y": []}
 
-        #connecting signal to plot update function
-        self.data_updated.connect(self.update_plot)
-        self.request_overlay_toggle.connect(self.toggle_overlay)
-        self.setup_hotkeys()
-        
-        # --- Controller Setup (PS4 L3 -> Tab) ---
-        self.joystick = None
-        self.l3_pressed = False
-        self.init_controller()
-        self.controller_timer = QtCore.QTimer()
-        self.controller_timer.timeout.connect(self.poll_controller)
-        self.controller_timer.start(16) # Poll at ~60Hz
 
     def setup_hotkeys(self):
         key.add_hotkey('f8', self.start_run)
@@ -1385,24 +1454,23 @@ class WarframeTracker(QtCore.QObject):
         try:
             # Process all events from the queue. This is the standard pygame way.
             for event in pygame.event.get():
-                # --- Diagnostic: Print all button presses ---
-                if event.type == pygame.JOYBUTTONDOWN:
-                    print(f"[Controller Diagnostic] Button {event.button} PRESSED")
                 # --- End Diagnostic ---
+                
+                
 
                 # Check if the event is for our target button (L3)
                 btn_index = 7 # Changed based on your diagnostic output
                 if event.type == pygame.JOYBUTTONDOWN and event.button == btn_index:
                     self.l3_pressed = True
-                    print(f"[Controller] Button {btn_index} Pressed - Holding TAB")
+                    self.log(f"[Controller] Button {btn_index} Pressed - Holding TAB")
                     pydirectinput.keyDown('tab')
                 elif event.type == pygame.JOYBUTTONUP and event.button == btn_index:
                     self.l3_pressed = False
-                    print(f"[Controller] Button {btn_index} Released - Releasing TAB")
+                    self.log(f"[Controller] Button {btn_index} Released - Releasing TAB")
                     pydirectinput.keyUp('tab')
         except pygame.error as e:
             # This can happen if the controller disconnects
-            print(f"[Controller] Polling error (likely disconnected): {e}")
+            self.log(f"[Controller] Error: {e}", is_error=True)
             self.joystick = None
 
     def _start_log_timer_slot(self):
@@ -1456,6 +1524,8 @@ class WarframeTracker(QtCore.QObject):
 
         if self.acolyte_warner:
             self.acolyte_warner.show_preview()
+        if self.effigy_warner:
+            self.effigy_warner.show_preview("Effigy Warn\n(Drag & Scroll)")
 
     def load_config(self):
         try:
@@ -1490,7 +1560,6 @@ class WarframeTracker(QtCore.QObject):
                     print("[Config] Warning: Kill tracking enabled in settings, but config file has no kill coordinates. Disabling Kills.")
                     self.track_kills = False
             
-
             self.UI = "y" # Ensure shift() uses these coordinates
             print("[Config] Configuration loaded successfully.")
             return True
@@ -1523,16 +1592,48 @@ class WarframeTracker(QtCore.QObject):
         except Exception as e:
             print(f"[PB] Error loading CSV: {e}")
 
+    def save_overlay_positions(self):
+        try:
+            # Load existing to preserve keys we might not be tracking right now
+            current_saved = {}
+            if os.path.exists(self.overlay_positions_file):
+                try:
+                    with open(self.overlay_positions_file, 'r') as f:
+                        current_saved = json.load(f)
+                except: pass
+            
+            # Update with current overlays
+            for key, ov in self.number_overlays.items():
+                pos = ov.pos()
+                current_saved[key] = {'x': pos.x(), 'y': pos.y(), 'font_size': ov.font_size}
+            
+            if self.acolyte_warner:
+                pos = self.acolyte_warner.pos()
+                current_saved['acolyte'] = {'x': pos.x(), 'y': pos.y(), 'font_size': self.acolyte_warner.font_size}
+            
+            if self.effigy_warner:
+                pos = self.effigy_warner.pos()
+                current_saved['effigy'] = {'x': pos.x(), 'y': pos.y(), 'font_size': self.effigy_warner.font_size}
+
+            with open(self.overlay_positions_file, 'w') as f:
+                json.dump(current_saved, f, indent=4)
+            # print("[System] Overlay positions saved.") 
+        except Exception as e:
+            print(f"[System] Error saving overlay positions: {e}")
+
     def start_run(self):
         # Ensure any previous run state is cleared
         self.start_time = None
         
         if self.start_time is not None:
-            print("\n[Run] Run is already in progress. Press F10 to save and end the current run first.")
+            self.log("Run start attempted but run already in progress.", important=True)
             return
             
         self.start_time = time.perf_counter()
         self.last_plot_update = 0
+
+        # Save overlay positions on run start
+        self.save_overlay_positions()
 
         # Reset data for new run to fix plotting issues
         self.creds = []
@@ -1542,6 +1643,7 @@ class WarframeTracker(QtCore.QObject):
         self.current_run_time = []
         self.cpm = []
         self.initial_log_kills = None
+        self.ee_log_start_offset = None
         
         # Reset Master Log
         self.master_log = []
@@ -1550,11 +1652,15 @@ class WarframeTracker(QtCore.QObject):
         # Hide Acolyte Warner preview if it's visible
         if self.acolyte_warner:
             self.acolyte_warner.hide_preview()
+        if self.effigy_warner:
+            self.effigy_warner.hide_preview()
         self.state_cpm = 0
         self.state_kills = 0
         self.state_kpm = 0
         self.state_fps = 0
         self.pending_event = "Start"
+        self.is_effigy_dead = False
+        self.last_ally_live = 0
         
         # Clear PB Curves (in case they were shown in a previous run)
         if self.track_credits:
@@ -1593,21 +1699,52 @@ class WarframeTracker(QtCore.QObject):
             self.run_output_path = os.path.join(output_dir, folder_name)
             os.makedirs(self.run_output_path, exist_ok=True)
             
-            print(f"\n[Run] Started! Output will be saved to: {self.run_output_path}")
+            # Setup Debug/Log Folder
+            if self.debug_mode:
+                self.debug_dir = os.path.join(self.run_output_path, "DEBUG_INFO")
+                os.makedirs(self.debug_dir, exist_ok=True)
+                log_path = os.path.join(self.debug_dir, "runtime_log.txt")
+            else:
+                self.debug_dir = None
+                log_path = os.path.join(self.run_output_path, "runtime_log.txt")
+            
+            self.log_file = open(log_path, "w", encoding="utf-8")
+            
+            self.log(f"[Run] Started! Output: {self.run_output_path}", important=True)
+            self.log(f"[Run] Debug Mode: {self.debug_mode}")
+            
+            # --- Verbose Start Info for Players ---
+            self.log("-" * 40)
+            self.log(f"CONFIGURATION: {self.settings['mode']} Mode")
+            self.log(f"Monitor Resolution: {self.monitor['width']}x{self.monitor['height']}")
+            self.log(f"Active Features: Credits={self.track_credits}, Kills={self.track_kills}, Logs={self.track_logs}, FPS={self.track_fps}")
+            if self.track_logs:
+                 self.log(f"Log Path: {self.ee_log_path}")
+                 if self.effigy_enabled:
+                     self.log(f"Effigy Monitor: ON (Threshold: {self.effigy_threshold}). Warning triggers if allies < {self.effigy_threshold}.")
+            self.log("-" * 40)
         except Exception as e:
             print(f"[CRITICAL] Could not create output folder. Error: {e}")
             self.run_output_path = os.path.dirname(os.path.abspath(__file__))
         
-        print("[Run] Timer started at 0.0.")
+        self.log("[Run] Timer started at 0.0.")
         
         if self.track_fps:
             self.fps_tracker.start()
         
         if self.track_logs:
-            log_path = os.path.expandvars(r"%LOCALAPPDATA%\Warframe\EE.log")
-            self.log_reader = LogReader(log_path)
+            self.log_reader = LogReader(self.ee_log_path)
             self.log_reader.start()
             self.sig_start_log_timer.emit() # Update every 1 second
+            
+            if self.debug_mode and os.path.exists(self.ee_log_path):
+                try:
+                    with open(self.ee_log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        f.seek(0, os.SEEK_END)
+                        self.ee_log_start_offset = f.tell()
+                    self.log(f"[Debug] EE.log start offset marked at: {self.ee_log_start_offset}")
+                except Exception as e:
+                    self.log(f"[Debug] Failed to mark EE.log start: {e}", is_error=True)
         
         # Always start the timer now to record FPS even if logs are off
         self.sig_start_log_timer.emit()
@@ -1629,6 +1766,27 @@ class WarframeTracker(QtCore.QObject):
             if self.track_fps:
                 if 'FPS' in self.pb_data: self.curve_fps_pb.setData(t, self.pb_data['FPS'].to_numpy())
 
+    def trigger_ability_warning(self):
+        if self.effigy_warner:
+            self.effigy_warner.start_persistent_warning("Effigy dead")
+            
+            # Auto-hide after 8 seconds
+            QtCore.QTimer.singleShot(8000, self.effigy_warner.stop_warning)
+            
+            effigy_cfg = self.settings.get("effigy_config", {})
+
+            if effigy_cfg.get("audio_cue", True):
+                # Play sound in a separate thread so it doesn't block the UI update
+                def play_alert():
+                    for _ in range(3):
+                        winsound.Beep(1500, 100)
+                        time.sleep(0.05)
+                threading.Thread(target=play_alert, daemon=True).start()
+    
+    def clear_ability_warning(self):
+        if self.effigy_warner:
+            self.effigy_warner.stop_warning()
+
     def find_credits_coords(self, im):
         # Convert to gray for OCR
         im_gray = cv.cvtColor(im, cv.COLOR_BGRA2GRAY)
@@ -1649,21 +1807,23 @@ class WarframeTracker(QtCore.QObject):
     def on_tab_press(self, event):
         if self.tab_held:
             return
+        self.log("Tab key pressed.")
         self.tab_held = True
         self.tab_action()
 
     def on_tab_release(self, event):
+        self.log("Tab key released.")
         self.tab_held = False
 
     def tab_action(self):
         try:
             self._tab_action_unsafe()
         except Exception as e:
-            print(f"[Tab Action] Error: {e}")
+            self.log(f"[Tab Action] Error: {e}", is_error=True)
 
     def _tab_action_unsafe(self):
         if self.start_time is None:
-            print("[Action] Ignored: Press F8 to start the run timer first!")
+            self.log("[Action] Ignored: Run not started.")
             return
         current_time = time.perf_counter()
         if (current_time - self.last_tab_time) < self.cooldown_duration:
@@ -1674,7 +1834,7 @@ class WarframeTracker(QtCore.QObject):
         
         elapsed_time = time.perf_counter() - self.start_time
         if elapsed_time < 1.0:
-            print("[Action] Ignored: Run time < 1 second.")
+            self.log("[Action] Ignored: Run time < 1 second.")
             if self.use_sound:
                 winsound.Beep(500, 200) # Low beep to indicate ignore
             return
@@ -1722,17 +1882,20 @@ class WarframeTracker(QtCore.QObject):
                         best_box = box
                 
                 if not best_box:
-                    print("[Scan] Error: Could not match Credits text to any configured box.")
+                    self.log(f"[Scan] ERROR: 'Credits' text found at {coords}, but does not align with any configured credit box.", is_error=True)
+                    self.log("[Scan] Hint: Run 'Editing a Bounding Box' and check if your yellow boxes line up with where the numbers appear relative to the 'Credits' text.")
                     return
                 self.last_credits_coords = coords
             else:
-                print("[Scan] Did not find 'Credits' text in scan area.")
+                self.log("[Scan] Did not find 'Credits' text in scan area.")
+                self.log("[Scan] Hint: Ensure the Mission Progress menu is open. Check if the green 'Scan Area' box covers the word 'Credits'.")
                 if self.use_sound:
                     winsound.Beep(500, 200) # Low beep for "Not Found"
-                if self.debug_mode and self.run_output_path:
-                    filename = f"scan_fail_no_credits_text_at_{time_mins:.2f}m.png"
-                    path = os.path.join(self.run_output_path, filename)
+                if self.debug_mode and self.debug_dir:
+                    filename = f"NO_CREDITS_TEXT_AT_{time_mins:.2f}m.png"
+                    path = os.path.join(self.debug_dir, filename)
                     cv.imwrite(path, im_scan)
+                    self.log(f"Saved debug image: {filename}")
                 return
 
         # --- 2. Capture Data Images ---
@@ -1759,11 +1922,12 @@ class WarframeTracker(QtCore.QObject):
             if len(self.creds) > 0:
                 diff = num - self.creds[-1]
                 if diff > 1_000_000:
-                    print(f"[Scan] Warning: Credits jumped by {diff}. Saving debug image.")
-                    if self.run_output_path:
-                        filename = f"credit_possible_mistake_{time_mins:.2f}m.png"
-                        path = os.path.join(self.run_output_path, filename)
+                    self.log(f"[Scan] Warning: Credits jumped by {diff} (Prev: {self.creds[-1]}, New: {num}).", important=True)
+                    if self.debug_mode and self.debug_dir:
+                        filename = f"CREDIT_JUMP_WARNING_AT_{time_mins:.2f}m.png"
+                        path = os.path.join(self.debug_dir, filename)
                         cv.imwrite(path, im_credits_val)
+                        self.log(f"Saved debug image: {filename}")
 
             if num > 0:
                 scan_succeeded = True
@@ -1774,11 +1938,14 @@ class WarframeTracker(QtCore.QObject):
                 self.state_credits = num
                 self.state_cpm = int(cpm_value)
             else:
-                print("[Scan] Failed to read credit numbers.")
-                if self.debug_mode and self.run_output_path:
-                    filename = f"scan_fail_credits_at_{time_mins:.2f}m.png"
-                    path = os.path.join(self.run_output_path, filename)
+                active_win = self.get_active_window_title()
+                self.log(f"[Scan] FAIL: Could not read credit numbers from image. Active Window: '{active_win}'")
+                self.log("[Scan] Hint: Check if the yellow 'Credit Positions' boxes accurately cover the numbers. Ensure no glare/overlay is blocking them.")
+                if self.debug_mode and self.debug_dir:
+                    filename = f"OCR_CREDITS_FAIL_AT_{time_mins:.2f}m.png"
+                    path = os.path.join(self.debug_dir, filename)
                     cv.imwrite(path, im_credits_val)
+                    self.log(f"Saved debug image: {filename}")
 
         # --- Kills Logic (OCR) ---
         kills_num = 0
@@ -1790,20 +1957,22 @@ class WarframeTracker(QtCore.QObject):
             elif im_kills_val is not None:
                 kills_num, _, _ = self.ocr_function(im_kills_val, bbox=None)
                 
-                if kills_num == 0 and self.debug_mode and self.run_output_path:
-                    filename = f"scan_fail_kills_at_{time_mins:.2f}m.png"
-                    path = os.path.join(self.run_output_path, filename)
+                if kills_num == 0 and self.debug_mode and self.debug_dir:
+                    filename = f"OCR_KILLS_FAIL_AT_{time_mins:.2f}m.png"
+                    path = os.path.join(self.debug_dir, filename)
                     cv.imwrite(path, im_kills_val)
+                    self.log(f"Saved debug image: {filename}")
 
                 # Safety Check: Kills jump > 2,500 (OCR only)
                 if len(self.kills) > 0:
                     diff = kills_num - self.kills[-1]
                     if diff > 2500:
-                        print(f"[Scan] Warning: Kills jumped by {diff}. Saving debug image.")
-                        if self.run_output_path:
-                            filename = f"kill_possible_mistake_{time_mins:.2f}m.png"
-                            path = os.path.join(self.run_output_path, filename)
+                        self.log(f"[Scan] Warning: Kills jumped by {diff} (Prev: {self.kills[-1]}, New: {kills_num}).", important=True)
+                        if self.debug_mode and self.debug_dir:
+                            filename = f"KILL_JUMP_WARNING_AT_{time_mins:.2f}m.png"
+                            path = os.path.join(self.debug_dir, filename)
                             cv.imwrite(path, im_kills_val)
+                            self.log(f"Saved debug image: {filename}")
             
             if kills_num > 0 and not self.track_logs:
                 scan_succeeded = True
@@ -1820,7 +1989,7 @@ class WarframeTracker(QtCore.QObject):
 
         # --- 5. Finalize and Signal ---
         if not scan_succeeded:
-            print("[Scan] OCR failed for all tracked metrics.")
+            self.log("[Scan] FAILURE: No valid data extracted from scan (OCR failed for all metrics).", important=True)
             if self.use_sound:
                 winsound.Beep(500, 200) # Low beep for total failure
             return # Exit without appending time or updating plots
@@ -1852,7 +2021,7 @@ class WarframeTracker(QtCore.QObject):
         log_msg = f"Scanned - Time: {time_mins:.2f}m"
         if self.track_credits and num > 0: log_msg += f" | Credits: {num} (CPM: {int(cpm_value)})"
         if self.track_kills and ((self.track_logs and self.use_log_kpm) or kills_num > 0): log_msg += f" | Kills: {kills_num} (KPM: {int(kpm_value)})"
-        print(log_msg)
+        self.log(log_msg, important=True)
         
         # Update Overlays (Tab Data)
         # Must use signal because tab_action runs in a background thread (keyboard hook)
@@ -1881,11 +2050,11 @@ class WarframeTracker(QtCore.QObject):
         
         if len(scan) == 0:
             if retries < 6 and bbox is not None:
-                print(f"  [OCR] Empty scan. Retrying in 0.3s (Attempt {retries + 1}/6)")
+                self.log(f"  [OCR] Empty scan. Retrying in 0.3s (Attempt {retries + 1}/6)")
                 time.sleep(0.3)
                 return self.ocr_function(self.screenshot(bbox=bbox), bbox=bbox, retries=retries + 1)
             else:
-                print("  [OCR] Max retries reached. Returning 0.")
+                self.log("  [OCR] Max retries reached. Returning 0.")
                 # Return zeros so the script doesn't append bad data or crash
                 return 0, 0.0, time.perf_counter() - self.start_time
         
@@ -1898,7 +2067,7 @@ class WarframeTracker(QtCore.QObject):
             time_cp = time.perf_counter() - self.start_time
             return num, confidence, time_cp 
         except Exception as e:
-            print(f"[OCR] Parse Error: {e}")
+            self.log(f"[OCR] Parse Error: {e} | Raw Scan: {scan}", is_error=True)
             return 0, 0.0, time.perf_counter() - self.start_time
 
 
@@ -1932,16 +2101,16 @@ class WarframeTracker(QtCore.QObject):
             fps = self.fps_tracker.get_fps()
             self.state_fps = fps
 
-        live, spawned = 0, 0
+        live, spawned, ally_live = 0, 0, 0
         if self.track_logs and self.log_reader:
-            live, spawned = self.log_reader.get_stats()
+            live, spawned, ally_live = self.log_reader.get_stats()
         
         # Check for Acolyte Warning
         if self.track_logs and self.log_reader and self.acolyte_warner:
             acolyte_info = self.log_reader.check_and_clear_acolyte_warning()
             if acolyte_info:
                 name, duration = acolyte_info
-                print(f"[Tracker] Triggering Acolyte Warner for {name} ({duration}s)!")
+                self.log(f"[Tracker] Triggering Acolyte Warner for {name} ({duration}s)!", important=True)
                 acolyte_cfg = self.settings.get("acolyte_config", {})
                 if acolyte_cfg.get("audio_cue", True):
                     # Use a distinct sound for the acolyte
@@ -1950,6 +2119,29 @@ class WarframeTracker(QtCore.QObject):
                         winsound.Beep(1500, 100)
                         time.sleep(0.05)
                 self.acolyte_warner.start_warning(name, duration)
+                if self.pending_event:
+                    self.pending_event += f" | {name} Spawned"
+                else:
+                    self.pending_event = f"{name} Spawned"
+
+        # Check for Effigy Warning (Log Based)
+        if self.track_logs and self.effigy_enabled:
+            # If ally count drops, trigger warning
+            # Logic: Trigger if we drop FROM the active threshold (or higher) TO below it.
+            if self.last_ally_live >= self.effigy_threshold and ally_live < self.effigy_threshold:
+                self.log(f"[Tracker] Effigy Warning Triggered: Ally count dropped from {self.last_ally_live} to {ally_live} (Threshold: {self.effigy_threshold}).")
+                self.sig_ability_warning.emit()
+            self.last_ally_live = ally_live
+
+        # Check for General Log Events (Acolyte Death)
+        if self.track_logs and self.log_reader:
+            log_event = self.log_reader.check_and_clear_general_events()
+            if log_event:
+                self.log(f"[Tracker] Event: {log_event}", important=True)
+                if self.pending_event:
+                    self.pending_event += f" | {log_event}"
+                else:
+                    self.pending_event = log_event
 
         kills = 0
         kpm = 0.0
@@ -2056,11 +2248,11 @@ class WarframeTracker(QtCore.QObject):
         self.start_time = None
         
         if not self.run_output_path:
-            output_dir = os.path.join(os.getcwd(), "OUTPUT")
+            output_dir = os.path.join(os.getcwd(), "False_or_unfinished_runs")
             os.makedirs(output_dir, exist_ok=True)
             self.run_output_path = os.path.join(output_dir, "unsaved_run")
             os.makedirs(self.run_output_path, exist_ok=True)
-            print(f"\n[End] Warning: Run was not started. Saving to '{self.run_output_path}'")
+            self.log(f"[End] Warning: Run was not started. Saving to '{self.run_output_path}'", important=True)
 
         if self.track_logs and self.log_reader:
             self.log_reader.stop()
@@ -2074,35 +2266,53 @@ class WarframeTracker(QtCore.QObject):
         if self.acolyte_warner:
             self.acolyte_warner.timer.stop()
             self.acolyte_warner.close()
+        if self.effigy_warner:
+            self.effigy_warner.timer.stop()
+            self.effigy_warner.close()
+        
+        # Save EE.log recording if debug mode
+        if self.track_logs and self.debug_mode and self.ee_log_start_offset is not None and self.debug_dir:
+            try:
+                if os.path.exists(self.ee_log_path):
+                    dest_log = os.path.join(self.debug_dir, "ee_recording.log")
+                    self.log(f"[Debug] Saving EE.log recording to: {dest_log}")
+                    
+                    with open(self.ee_log_path, 'r', encoding='utf-8', errors='ignore') as src:
+                        # Check if file was truncated (game restart)
+                        src.seek(0, os.SEEK_END)
+                        end_pos = src.tell()
+                        
+                        if self.ee_log_start_offset > end_pos:
+                            self.log("[Debug] EE.log seems to have been truncated or rotated. Skipping recording.", is_error=True)
+                        else:
+                            src.seek(self.ee_log_start_offset)
+                            with open(dest_log, 'w', encoding='utf-8') as dst:
+                                shutil.copyfileobj(src, dst)
+            except Exception as e:
+                self.log(f"[Debug] Failed to save EE.log recording: {e}", is_error=True)
         
         # Save Overlay Positions
-        try:
-            positions_to_save = {}
-            for key, ov in self.number_overlays.items():
-                pos = ov.pos()
-                positions_to_save[key] = {'x': pos.x(), 'y': pos.y(), 'font_size': ov.font_size}
-            
-            if self.acolyte_warner:
-                pos = self.acolyte_warner.pos()
-                positions_to_save['acolyte'] = {'x': pos.x(), 'y': pos.y(), 'font_size': self.acolyte_warner.font_size}
-
-            if positions_to_save:
-                with open(self.overlay_positions_file, 'w') as f:
-                    json.dump(positions_to_save, f, indent=4)
-                print("[End] Overlay positions saved.")
-
-        except Exception as e:
-            print(f"[End] Error saving overlay positions: {e}")
-
-        print("\n[End] Stopping trackers and saving data...")
+        self.save_overlay_positions()
+        self.log("[End] Overlay positions saved.")
+        self.log("[End] Stopping trackers and saving data...", important=True)
         save_path = os.path.join(self.run_output_path, "master_run_log.csv")
         
         try:
             df_master = pd.DataFrame(self.master_log)
             df_master.to_csv(save_path, index=False)
-            print(f"[End] Data saved to: {save_path}")
+            self.log(f"[End] Data saved to: {save_path}", important=True)
         except Exception as e:
-            print(f"[End] Error saving Master CSV: {e}")
+            self.log(f"[End] Error saving Master CSV: {e}", is_error=True)
+
+        if self.log_file:
+            self.log("-" * 40)
+            self.log("Run ended.")
+            if self.current_run_time:
+                self.log(f"Total Duration: {self.current_run_time[-1]:.2f} minutes")
+            self.log(f"Total Credits: {self.state_credits}")
+            self.log("-" * 40)
+            self.log_file.close()
+            self.log_file = None
 
         # Matplotlib Plotting
         try:
@@ -2168,7 +2378,7 @@ class WarframeTracker(QtCore.QObject):
             
             plot_path = os.path.join(self.run_output_path, "run_plots.png")
             plt.savefig(plot_path)
-            print(f"[End] Plots saved to: {plot_path}")
+            print(f"[End] Plots saved to: {plot_path}") # Keep print here as log file is closed? No, log file closed above.
             plt.close(fig)
             
             # Separate Enemy Data Plots
@@ -2197,7 +2407,7 @@ class WarframeTracker(QtCore.QObject):
                 
                 enemy_plot_path = os.path.join(self.run_output_path, "enemy_plots.png")
                 plt.savefig(enemy_plot_path)
-                print(f"[End] Enemy plots saved to: {enemy_plot_path}")
+                print(f"[End] Enemy plots saved to: {enemy_plot_path}") # Keep print
                 plt.close(fig_enemy)
                 
         except Exception as e:
@@ -2205,7 +2415,21 @@ class WarframeTracker(QtCore.QObject):
 
         # Reset run state so a new run can be started
         self.run_output_path = None
-        print("[End] Run finished. Ready for new run.\n")
+        print("[End] Run finished. Ready for new run.\n") # Keep print
+        
+        # Prompt for next run
+        QtCore.QTimer.singleShot(100, self.prompt_next_run)
+
+    def prompt_next_run(self):
+        # Open Settings Dialog again to allow user to start next run
+        dlg = SettingsDialog()
+        # Pre-load current settings
+        dlg.check_load_prev.setChecked(True)
+        dlg.load_previous_settings(True)
+        
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            self.settings = dlg.get_settings()
+            self.setup_session()
 
 
 # ==========================================
