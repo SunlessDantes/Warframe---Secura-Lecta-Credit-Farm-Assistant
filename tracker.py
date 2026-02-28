@@ -196,6 +196,7 @@ class WarframeTracker(QtCore.QObject):
         self.always_on_top = self.settings['always_on_top']
         self.use_sound = self.settings['use_sound']
         self.debug_mode = self.settings['debug_mode']
+        self.sound_config = self.settings.get("sound_config", {})
         self.use_overlay = self.settings.get('use_overlay', False)
         
         self.effigy_threshold = 3 if self.settings.get('mode', 'Solo') == 'Duo' else 2
@@ -403,6 +404,35 @@ class WarframeTracker(QtCore.QObject):
             
         if self.track_fps:
             self.plot_data_fps = {"t": [], "y": []}
+
+    def play_sound_event(self, event_key):
+        # Default fallbacks if config is missing
+        defaults = {
+            "scan_success": {"type": "Custom Beep", "freq": 1000, "dur": 150},
+            "scan_fail": {"type": "Custom Beep", "freq": 500, "dur": 200},
+            "acolyte": {"type": "Custom Beep", "freq": 1500, "dur": 100},
+            "effigy": {"type": "Custom Beep", "freq": 1500, "dur": 100}
+        }
+        cfg = self.sound_config.get(event_key, defaults.get(event_key))
+        
+        if cfg and cfg.get("type") == "Custom File":
+            path = cfg.get("file")
+            if path and os.path.exists(path):
+                try:
+                    s = pygame.mixer.Sound(path)
+                    s.set_volume(cfg.get("vol", 100) / 100.0)
+                    s.play()
+                    return s.get_length(), False # Duration, Blocked?
+                except: pass
+            return 0, False
+        elif cfg and cfg.get("type") == "Custom Beep":
+            winsound.Beep(cfg.get("freq", 1000), cfg.get("dur", 100))
+            return cfg.get("dur", 100) / 1000.0, True
+        else:
+            # Map string to winsound constant
+            mapping = {"System Asterisk": winsound.MB_ICONASTERISK, "System Exclamation": winsound.MB_ICONEXCLAMATION, "System Hand": winsound.MB_ICONHAND, "System Question": winsound.MB_ICONQUESTION, "System OK": winsound.MB_OK}
+            winsound.MessageBeep(mapping.get(cfg.get("type"), winsound.MB_OK))
+            return 0.5, True # Assume ~0.5s for system sounds
 
 
     def setup_hotkeys(self):
@@ -770,9 +800,11 @@ class WarframeTracker(QtCore.QObject):
             if effigy_cfg.get("audio_cue", True):
                 # Play sound in a separate thread so it doesn't block the UI update
                 def play_alert():
-                    for _ in range(3):
-                        winsound.Beep(1500, 100)
-                        time.sleep(0.05)
+                    for i in range(3):
+                        dur, blocked = self.play_sound_event("effigy")
+                        if dur > 3.0: break
+                        if not blocked: time.sleep(dur)
+                        if i < 2: time.sleep(0.05)
                 threading.Thread(target=play_alert, daemon=True).start()
     
     def clear_ability_warning(self):
@@ -882,7 +914,7 @@ class WarframeTracker(QtCore.QObject):
                 self.log("[Scan] Did not find 'Credits' text in scan area.")
                 self.log("[Scan] Hint: Ensure the Mission Progress menu is open. Check if the green 'Scan Area' box covers the word 'Credits'.")
                 if self.use_sound:
-                    winsound.Beep(500, 200) # Low beep for "Not Found"
+                    self.play_sound_event("scan_fail")
                 if self.debug_mode and self.debug_dir:
                     filename = f"NO_CREDITS_TEXT_AT_{time_mins:.2f}m.png"
                     path = os.path.join(self.debug_dir, filename)
@@ -983,11 +1015,11 @@ class WarframeTracker(QtCore.QObject):
         if not scan_succeeded:
             self.log("[Scan] FAILURE: No valid data extracted from scan (OCR failed for all metrics).", important=True)
             if self.use_sound:
-                winsound.Beep(500, 200) # Low beep for total failure
+                self.play_sound_event("scan_fail")
             return # Exit without appending time or updating plots
 
         if self.use_sound:
-            winsound.Beep(1000, 150) # High beep for success
+            self.play_sound_event("scan_success")
         self.current_run_time.append(time_mins)
 
         # Update Kills state if using logs (must happen after success check)
@@ -1106,10 +1138,14 @@ class WarframeTracker(QtCore.QObject):
                 acolyte_cfg = self.settings.get("acolyte_config", {})
                 if acolyte_cfg.get("audio_cue", True):
                     # Use a distinct sound for the acolyte
-                    # 3 High Beeps
-                    for _ in range(3):
-                        winsound.Beep(1500, 100)
-                        time.sleep(0.05)
+                    # 3 High Beeps or 1 Long Sound
+                    def play_acolyte():
+                        for i in range(3):
+                            dur, blocked = self.play_sound_event("acolyte")
+                            if dur > 3.0: break
+                            if not blocked: time.sleep(dur)
+                            if i < 2: time.sleep(0.05)
+                    threading.Thread(target=play_acolyte, daemon=True).start()
                 self.acolyte_warner.start_warning(name, duration)
                 if self.pending_event:
                     self.pending_event += f" | {name} Spawned"

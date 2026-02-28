@@ -9,7 +9,7 @@ import cv2 as cv
 import mss
 from screeninfo import get_monitors
 from pyqtgraph.Qt import QtWidgets, QtCore, QtGui
-from gui_components import AcolyteConfigDialog, EffigyConfigDialog, OverlayConfigDialog
+from gui_components import AcolyteConfigDialog, EffigyConfigDialog, OverlayConfigDialog, SoundConfigDialog
 from bounding_box_setup import ConfigEditor
 
 class ProfileManagerDialog(QtWidgets.QDialog):
@@ -135,6 +135,13 @@ class SettingsDialog(QtWidgets.QDialog):
             "color": "#0000FF",
             "opacity": 50
         }
+        # Default Sound Config
+        self.sound_config = {
+            "scan_success": {"type": "Custom Beep", "freq": 1000, "dur": 150, "vol": 100},
+            "scan_fail": {"type": "Custom Beep", "freq": 500, "dur": 200, "vol": 100},
+            "acolyte": {"type": "Custom Beep", "freq": 1500, "dur": 100, "vol": 100},
+            "effigy": {"type": "Custom Beep", "freq": 1500, "dur": 100, "vol": 100}
+        }
 
         # --- Profile Selection UI ---
         profile_group = QtWidgets.QGroupBox("Settings Profiles")
@@ -226,10 +233,15 @@ class SettingsDialog(QtWidgets.QDialog):
         self.check_on_top.setToolTip("Keeps the live graph window always visible on top of other applications.")
         layout.addWidget(self.check_on_top)
 
+        sound_layout = QtWidgets.QHBoxLayout()
         self.check_sound = QtWidgets.QCheckBox("Sound Alert on Scan")
         self.check_sound.setChecked(False)
         self.check_sound.setToolTip("Plays a short 'beep' sound to confirm a successful scan has been processed.")
-        layout.addWidget(self.check_sound)
+        sound_layout.addWidget(self.check_sound)
+        self.btn_sound_config = QtWidgets.QPushButton("Configure Sounds...")
+        self.btn_sound_config.clicked.connect(self.open_sound_config)
+        sound_layout.addWidget(self.btn_sound_config)
+        layout.addLayout(sound_layout)
 
         self.check_debug = QtWidgets.QCheckBox("DEBUG MODE")
         self.check_debug.setChecked(False)
@@ -435,6 +447,11 @@ class SettingsDialog(QtWidgets.QDialog):
         dlg = OverlayConfigDialog(self.overlay_config, self)
         if dlg.exec_() == QtWidgets.QDialog.Accepted:
             self.overlay_config = dlg.get_config()
+
+    def open_sound_config(self):
+        dlg = SoundConfigDialog(self.sound_config, self)
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            self.sound_config = dlg.get_config()
 
     def import_old_config(self):
         src_dir = QtWidgets.QFileDialog.getExistingDirectory(self, "Select Previous Version Folder")
@@ -702,6 +719,15 @@ class SettingsDialog(QtWidgets.QDialog):
         self.check_sound.setChecked(data.get("use_sound", False))
         self.check_debug.setChecked(data.get("debug_mode", False))
         self.check_logs.setChecked(data.get("track_logs", False))
+        
+        # Load sound config or reset to defaults if missing (prevents settings leak from previous profile)
+        self.sound_config = data.get("sound_config", {
+            "scan_success": {"type": "Custom Beep", "freq": 1000, "dur": 150, "vol": 100},
+            "scan_fail": {"type": "Custom Beep", "freq": 500, "dur": 200, "vol": 100},
+            "acolyte": {"type": "Custom Beep", "freq": 1500, "dur": 100, "vol": 100},
+            "effigy": {"type": "Custom Beep", "freq": 1500, "dur": 100, "vol": 100}
+        })
+        
         self.check_log_kpm.setChecked(data.get("use_log_kpm", True))
         self.check_fps.setChecked(data.get("track_fps", False))
         self.check_overlay.setChecked(data.get("use_overlay", False))
@@ -739,6 +765,7 @@ class SettingsDialog(QtWidgets.QDialog):
             "always_on_top": self.check_on_top.isChecked(),
             "use_sound": self.check_sound.isChecked(),
             "debug_mode": self.check_debug.isChecked(),
+            "sound_config": self.sound_config,
             "track_logs": self.check_logs.isChecked(),
             "use_log_kpm": self.check_log_kpm.isChecked(),
             "track_fps": self.check_fps.isChecked(),

@@ -1,6 +1,8 @@
+import os
 import time
 import winsound
 import threading
+import pygame
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets, QtCore, QtGui
 
@@ -385,3 +387,139 @@ class AcolyteWarner(QtWidgets.QLabel):
         """Hides the positioning preview."""
         self.flash_on = False
         self.hide()
+
+class SoundSettingWidget(QtWidgets.QWidget):
+    def __init__(self, label, config, parent=None):
+        super().__init__(parent)
+        self.config = config
+        layout = QtWidgets.QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        layout.addWidget(QtWidgets.QLabel(label))
+        
+        self.combo = QtWidgets.QComboBox()
+        self.combo.addItems(["Custom File", "Custom Beep"])
+        
+        current_type = config.get("type", "Custom Beep")
+        if current_type not in ["Custom File", "Custom Beep"]:
+            current_type = "Custom Beep"
+        self.combo.setCurrentText(current_type)
+        layout.addWidget(self.combo)
+        
+        self.spin_freq = QtWidgets.QSpinBox()
+        self.spin_freq.setRange(37, 32767)
+        self.spin_freq.setSuffix(" Hz")
+        self.spin_freq.setValue(config.get("freq", 1000))
+        layout.addWidget(self.spin_freq)
+        
+        self.spin_dur = QtWidgets.QSpinBox()
+        self.spin_dur.setRange(1, 5000)
+        self.spin_dur.setSuffix(" ms")
+        self.spin_dur.setValue(config.get("dur", 150))
+        layout.addWidget(self.spin_dur)
+        
+        self.slider_vol = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.slider_vol.setRange(0, 100)
+        self.slider_vol.setValue(config.get("vol", 100))
+        self.slider_vol.setFixedWidth(80)
+        layout.addWidget(self.slider_vol)
+        
+        # File Selection UI
+        self.file_widget = QtWidgets.QWidget()
+        file_layout = QtWidgets.QHBoxLayout(self.file_widget)
+        file_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.line_file = QtWidgets.QLineEdit(config.get("file", ""))
+        self.line_file.setPlaceholderText("Path to .wav/.mp3")
+        file_layout.addWidget(self.line_file)
+        
+        self.btn_browse = QtWidgets.QPushButton("...")
+        self.btn_browse.setFixedWidth(30)
+        self.btn_browse.clicked.connect(self.browse_file)
+        file_layout.addWidget(self.btn_browse)
+        
+        layout.addWidget(self.file_widget)
+
+        self.btn_test = QtWidgets.QPushButton("Test")
+        self.btn_test.clicked.connect(self.test_sound)
+        layout.addWidget(self.btn_test)
+        
+        self.combo.currentTextChanged.connect(self.update_visibility)
+        self.update_visibility(self.combo.currentText())
+
+    def update_visibility(self, text):
+        is_beep = (text == "Custom Beep")
+        is_file = (text == "Custom File")
+        self.spin_freq.setVisible(is_beep)
+        self.spin_dur.setVisible(is_beep)
+        self.slider_vol.setVisible(is_file)
+        self.file_widget.setVisible(is_file)
+
+    def browse_file(self):
+        f, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select Sound File", "", "Audio Files (*.wav *.mp3 *.ogg)")
+        if f:
+            try:
+                s = pygame.mixer.Sound(f)
+                self.line_file.setText(f)
+            except Exception as e:
+                QtWidgets.QMessageBox.warning(self, "Error", f"Could not load sound file: {e}")
+
+    def get_config(self):
+        return {
+            "type": self.combo.currentText(),
+            "freq": self.spin_freq.value(),
+            "dur": self.spin_dur.value(),
+            "file": self.line_file.text(),
+            "vol": self.slider_vol.value()
+        }
+
+    def test_sound(self):
+        cfg = self.get_config()
+        if cfg["type"] == "Custom File":
+            if os.path.exists(cfg["file"]):
+                try:
+                    s = pygame.mixer.Sound(cfg["file"])
+                    s.set_volume(cfg["vol"] / 100.0)
+                    s.play()
+                except Exception as e:
+                    print(f"Error playing sound: {e}")
+        elif cfg["type"] == "Custom Beep":
+            winsound.Beep(cfg["freq"], cfg["dur"])
+
+class SoundConfigDialog(QtWidgets.QDialog):
+    def __init__(self, current_config, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Sound Configuration")
+        self.resize(550, 300)
+        self.config = current_config
+        layout = QtWidgets.QVBoxLayout(self)
+        
+        self.widgets = {}
+        labels = {
+            "scan_success": "Scan Success",
+            "scan_fail": "Scan Failure",
+            "acolyte": "Acolyte Warning (Plays 3x)",
+            "effigy": "Effigy Warning (Plays 3x)"
+        }
+        
+        # Define defaults if missing
+        defaults = {
+            "scan_success": {"type": "Custom Beep", "freq": 1000, "dur": 150},
+            "scan_fail": {"type": "Custom Beep", "freq": 500, "dur": 200},
+            "acolyte": {"type": "Custom Beep", "freq": 1500, "dur": 100},
+            "effigy": {"type": "Custom Beep", "freq": 1500, "dur": 100}
+        }
+        
+        for key, label in labels.items():
+            cfg = self.config.get(key, defaults.get(key))
+            w = SoundSettingWidget(label, cfg)
+            layout.addWidget(w)
+            self.widgets[key] = w
+            
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def get_config(self):
+        return {k: w.get_config() for k, w in self.widgets.items()}
