@@ -10,7 +10,7 @@ import mss
 import urllib.request
 from screeninfo import get_monitors
 from pyqtgraph.Qt import QtWidgets, QtCore, QtGui
-from gui_components import AcolyteConfigDialog, EffigyConfigDialog, OverlayConfigDialog, SoundConfigDialog
+from gui_components import AcolyteConfigDialog, EffigyConfigDialog, OverlayConfigDialog, SoundConfigDialog, AnimatedToggle
 from bounding_box_setup import ConfigEditor
 
 class ProfileManagerDialog(QtWidgets.QDialog):
@@ -123,9 +123,9 @@ class SettingsDialog(QtWidgets.QDialog):
     def __init__(self, version="Unknown"):
         super().__init__()
         self.setWindowTitle("Tracker Settings")
-        self.resize(300, 300)
+        self.resize(600, 550)
         self.version = version
-        layout = QtWidgets.QVBoxLayout()
+        main_layout = QtWidgets.QVBoxLayout(self)
 
         self.settings_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "last_run_settings.json")
         self.path_config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "path_config.json")
@@ -178,6 +178,14 @@ class SettingsDialog(QtWidgets.QDialog):
             "effigy": {"type": "Custom Beep", "freq": 1500, "dur": 100, "vol": 100}
         }
 
+        # --- Tabs Setup ---
+        self.tabs = QtWidgets.QTabWidget()
+        main_layout.addWidget(self.tabs)
+
+        # ================= TAB 1: GENERAL =================
+        tab_general = QtWidgets.QWidget()
+        layout_gen = QtWidgets.QVBoxLayout(tab_general)
+
         # --- Profile Selection UI ---
         profile_group = QtWidgets.QGroupBox("Settings Profiles")
         profile_layout = QtWidgets.QHBoxLayout()
@@ -187,12 +195,17 @@ class SettingsDialog(QtWidgets.QDialog):
         self.combo_profiles.currentIndexChanged.connect(self.on_profile_changed)
         profile_layout.addWidget(self.combo_profiles)
         
+        self.btn_save_profile = QtWidgets.QPushButton("Save")
+        self.btn_save_profile.setToolTip("Overwrite the selected profile with current settings.")
+        self.btn_save_profile.clicked.connect(self.save_current_profile)
+        profile_layout.addWidget(self.btn_save_profile)
+
         self.btn_manage_profiles = QtWidgets.QPushButton("Manage Profiles")
         self.btn_manage_profiles.clicked.connect(self.open_profile_manager)
         profile_layout.addWidget(self.btn_manage_profiles)
         
         profile_group.setLayout(profile_layout)
-        layout.addWidget(profile_group)
+        layout_gen.addWidget(profile_group)
 
         # Output Path UI
         path_layout = QtWidgets.QHBoxLayout()
@@ -204,22 +217,17 @@ class SettingsDialog(QtWidgets.QDialog):
         self.btn_browse.setFixedWidth(30)
         self.btn_browse.clicked.connect(self.browse_output_folder)
         path_layout.addWidget(self.btn_browse)
-        layout.addLayout(path_layout)
+        layout_gen.addLayout(path_layout)
 
         # Previous Settings Checkbox
-        self.check_load_prev = QtWidgets.QCheckBox("Load Last Used Settings")
+        self.check_load_prev = AnimatedToggle("Load Last Used Settings")
         self.check_load_prev.setToolTip("If checked, automatically loads all settings from the previous run when this dialog opens.")
         self.check_load_prev.toggled.connect(self.load_previous_settings)
-        layout.addWidget(self.check_load_prev)
+        layout_gen.addWidget(self.check_load_prev)
         
         if not os.path.exists(self.settings_file):
             self.check_load_prev.setEnabled(False)
             self.check_load_prev.setText("Load Last Used Settings (None found)")
-
-        line = QtWidgets.QFrame()
-        line.setFrameShape(QtWidgets.QFrame.HLine)
-        line.setFrameShadow(QtWidgets.QFrame.Sunken)
-        layout.addWidget(line)
 
         # Config Mode
         self.mode_group = QtWidgets.QGroupBox("Configuration Mode")
@@ -231,43 +239,39 @@ class SettingsDialog(QtWidgets.QDialog):
         mode_layout.addWidget(self.radio_solo)
         mode_layout.addWidget(self.radio_duo)
         self.mode_group.setLayout(mode_layout)
-        layout.addWidget(self.mode_group)
+        layout_gen.addWidget(self.mode_group)
+        
+        self.check_on_top = AnimatedToggle("Live Plots Always on Top")
+        self.check_on_top.setChecked(True)
+        layout_gen.addWidget(self.check_on_top)
+        
+        layout_gen.addStretch()
+        self.tabs.addTab(tab_general, "General")
 
-        # Scan Delay
-        layout.addWidget(QtWidgets.QLabel("Scan Delay (sec) [Wait after Tab]:"))
-        self.spin_delay = QtWidgets.QDoubleSpinBox()
-        self.spin_delay.setRange(0.1, 2.0)
-        self.spin_delay.setSingleStep(0.1)
-        self.spin_delay.setValue(0.3)
-        self.spin_delay.setToolTip("How long to wait (in seconds) after you press TAB before taking a screenshot.<br>Increase if the UI takes longer to fade in.")
-        layout.addWidget(self.spin_delay)
+        # ================= TAB 2: TRACKING =================
+        tab_tracking = QtWidgets.QWidget()
+        layout_track = QtWidgets.QVBoxLayout(tab_tracking)
 
-        # Cooldown
-        layout.addWidget(QtWidgets.QLabel("Cooldown (sec) [Min time between scans]:"))
-        self.spin_cooldown = QtWidgets.QDoubleSpinBox()
-        self.spin_cooldown.setRange(0.5, 10.0)
-        self.spin_cooldown.setSingleStep(0.5)
-        self.spin_cooldown.setValue(3.0)
-        self.spin_cooldown.setToolTip("The minimum time (in seconds) required between two consecutive TAB scans.<br>Prevents accidental double-scanning.")
-        layout.addWidget(self.spin_cooldown)
-
-        # Toggles
-        self.check_credits = QtWidgets.QCheckBox("Track Credits")
+        # --- Credits ---
+        credits_group = QtWidgets.QGroupBox("Credits Tracking")
+        credits_layout = QtWidgets.QVBoxLayout()
+        
+        self.check_credits = AnimatedToggle("Track Credits")
         self.check_credits.setChecked(True)
         self.check_credits.setToolTip("Enables tracking of Credits and Credits Per Minute (CPM) via OCR.")
-        layout.addWidget(self.check_credits)
+        credits_layout.addWidget(self.check_credits)
 
-        self.check_high_cpm = QtWidgets.QCheckBox("   └─ Show High CPM Line")
+        self.check_high_cpm = AnimatedToggle("Show High CPM Line")
         self.check_high_cpm.setChecked(False)
         self.check_high_cpm.setToolTip("Displays a horizontal line on the live CPM graph at the highest CPM value reached.")
         self.check_high_cpm.setEnabled(self.check_credits.isChecked())
         self.check_credits.toggled.connect(self.check_high_cpm.setEnabled)
-        layout.addWidget(self.check_high_cpm)
+        credits_layout.addWidget(self.check_high_cpm)
 
         # CPM Calculation Mode
         cpm_calc_group = QtWidgets.QWidget()
         cpm_calc_layout = QtWidgets.QHBoxLayout(cpm_calc_group)
-        cpm_calc_layout.setContentsMargins(25, 0, 0, 0) # Indent
+        cpm_calc_layout.setContentsMargins(0, 0, 0, 0)
         
         cpm_calc_layout.addWidget(QtWidgets.QLabel("CPM Mode:"))
         self.combo_cpm_mode = QtWidgets.QComboBox()
@@ -281,20 +285,23 @@ class SettingsDialog(QtWidgets.QDialog):
         self.spin_cpm_window.setValue(300)
         self.spin_cpm_window.setSuffix(" s")
         cpm_calc_layout.addWidget(self.spin_cpm_window)
-        layout.addWidget(cpm_calc_group)
+        credits_layout.addWidget(cpm_calc_group)
+        credits_group.setLayout(credits_layout)
+        layout_track.addWidget(credits_group)
 
-        self.check_kills = QtWidgets.QCheckBox("Track Kills (Snapshot on Tab)")
+        # --- Kills ---
+        kills_group = QtWidgets.QGroupBox("Kills Tracking")
+        kills_layout = QtWidgets.QVBoxLayout()
+        
+        self.check_kills = AnimatedToggle("Track Kills (Snapshot on Tab)")
         self.check_kills.setChecked(False)
         self.check_kills.setToolTip("Enables tracking of Kills and KPM based on a snapshot taken when you press TAB.<br>If 'Track Log Data' is also enabled, the kill count is taken from the log at that moment instead of using OCR.")
-        layout.addWidget(self.check_kills)
-
-        # Extras
-        self.check_on_top = QtWidgets.QCheckBox("Window Always on Top")
+        kills_layout.addWidget(self.check_kills)
         
         # Tab KPM Calculation Mode
         tab_kpm_calc_group = QtWidgets.QWidget()
         tab_kpm_calc_layout = QtWidgets.QHBoxLayout(tab_kpm_calc_group)
-        tab_kpm_calc_layout.setContentsMargins(25, 0, 0, 0) # Indent
+        tab_kpm_calc_layout.setContentsMargins(0, 0, 0, 0)
         
         tab_kpm_calc_layout.addWidget(QtWidgets.QLabel("Tab KPM Mode:"))
         self.combo_tab_kpm_mode = QtWidgets.QComboBox()
@@ -308,23 +315,29 @@ class SettingsDialog(QtWidgets.QDialog):
         self.spin_tab_kpm_window.setValue(300)
         self.spin_tab_kpm_window.setSuffix(" s")
         tab_kpm_calc_layout.addWidget(self.spin_tab_kpm_window)
-        layout.addWidget(tab_kpm_calc_group)
+        kills_layout.addWidget(tab_kpm_calc_group)
+        kills_group.setLayout(kills_layout)
+        layout_track.addWidget(kills_group)
 
-        self.check_logs = QtWidgets.QCheckBox("Track Log Data -- WARNING: This reads your EE.log file")
+        # --- Logs ---
+        logs_group = QtWidgets.QGroupBox("Log Tracking (EE.log)")
+        logs_layout = QtWidgets.QVBoxLayout()
+        
+        self.check_logs = AnimatedToggle("Track Log Data")
         self.check_logs.setStyleSheet("color: red; font-weight: bold;")
         self.check_logs.setChecked(False)
-        self.check_logs.setToolTip("Reads Warframe's EE.log file in real-time to track enemy spawns, deaths, and other game events.<br>This provides highly accurate, continuous data for KPM, ally counts (for Effigy), and Acolyte spawns.<br><b>NOTE:</b> This requires the game to be in English.<br><b>Required for DEBUG MODE.</b>")
-        layout.addWidget(self.check_logs)
+        self.check_logs.setToolTip("Reads Warframe's EE.log file in real-time to track enemy spawns, and other game events.<br>This provides highly accurate, continuous data for KPM, ally counts (for Effigy), and Acolyte spawns.<br>")
+        logs_layout.addWidget(self.check_logs)
         
         # Add Log KPM Plot Option
-        self.check_add_log_kpm = QtWidgets.QCheckBox("   └─ Plot KPM (Continuous from Log)")
+        self.check_add_log_kpm = AnimatedToggle("Plot KPM (Continuous from Log)")
         self.check_add_log_kpm.setToolTip("Adds a separate plot showing the continuous KPM calculated from the log file.<br>This is useful for comparing against the snapshot-based KPM.")
-        layout.addWidget(self.check_add_log_kpm)
+        logs_layout.addWidget(self.check_add_log_kpm)
 
         # Log KPM Calculation Mode
         kpm_calc_group = QtWidgets.QWidget()
         kpm_calc_layout = QtWidgets.QHBoxLayout(kpm_calc_group)
-        kpm_calc_layout.setContentsMargins(25, 0, 0, 0) # Indent
+        kpm_calc_layout.setContentsMargins(0, 0, 0, 0)
         
         kpm_calc_layout.addWidget(QtWidgets.QLabel("Log KPM Mode:"))
         self.combo_kpm_mode = QtWidgets.QComboBox()
@@ -339,80 +352,11 @@ class SettingsDialog(QtWidgets.QDialog):
         self.spin_kpm_window.setSuffix(" s")
         self.spin_kpm_window.setToolTip("The time window in seconds for the 'Rolling Average' KPM calculation.")
         kpm_calc_layout.addWidget(self.spin_kpm_window)
-        
-        layout.addWidget(kpm_calc_group)
+        logs_layout.addWidget(kpm_calc_group)
+        logs_group.setLayout(logs_layout)
+        layout_track.addWidget(logs_group)
 
-        # Acolyte Warner (only available if log tracking is on)
-        acolyte_group = QtWidgets.QGroupBox("Acolyte Warner")
-        acolyte_layout = QtWidgets.QHBoxLayout()
-        self.check_acolyte = QtWidgets.QCheckBox("Enable")
-        self.check_acolyte.setToolTip("Flashes a warning on-screen when an Acolyte taunt is detected in the log.<br>Requires 'Track Log Data' to be enabled.")
-        self.check_acolyte.toggled.connect(lambda c: self.btn_conf_acolyte.setEnabled(c))
-        acolyte_layout.addWidget(self.check_acolyte)
-        
-        self.btn_conf_acolyte = QtWidgets.QPushButton("Configure...")
-        self.btn_conf_acolyte.setEnabled(False)
-        self.btn_conf_acolyte.clicked.connect(self.open_acolyte_config)
-        acolyte_layout.addWidget(self.btn_conf_acolyte)
-        acolyte_group.setLayout(acolyte_layout)
-        layout.addWidget(acolyte_group)
-
-        # Effigy Warner (Moved under Log Tracking)
-        effigy_group = QtWidgets.QGroupBox("Effigy Warner")
-        effigy_layout = QtWidgets.QHBoxLayout()
-        self.check_effigy = QtWidgets.QCheckBox("Enable")
-        self.check_effigy.setToolTip("Flashes a warning when the number of active allies drops below a threshold, which can indicate Chroma's Effigy has been destroyed.<br>Requires 'Track Log Data' to be enabled.")
-        self.check_effigy.toggled.connect(lambda c: self.btn_conf_effigy.setEnabled(c))
-        effigy_layout.addWidget(self.check_effigy)
-        
-        self.btn_conf_effigy = QtWidgets.QPushButton("Configure...")
-        self.btn_conf_effigy.setEnabled(False)
-        self.btn_conf_effigy.clicked.connect(self.open_effigy_config)
-        effigy_layout.addWidget(self.btn_conf_effigy)
-        effigy_group.setLayout(effigy_layout)
-        layout.addWidget(effigy_group)
-
-        self.check_on_top.setChecked(True)
-        self.check_on_top.setToolTip("Keeps the live graph window always visible on top of other applications.")
-        layout.addWidget(self.check_on_top)
-
-        sound_layout = QtWidgets.QHBoxLayout()
-        self.check_sound = QtWidgets.QCheckBox("Sound Alert on Scan")
-        self.check_sound.setChecked(False)
-        self.check_sound.setToolTip("Enables audio cues for events like successful/failed scans and warnings.<br>Click 'Configure Sounds...' to customize.")
-        sound_layout.addWidget(self.check_sound)
-        self.btn_sound_config = QtWidgets.QPushButton("Configure Sounds...")
-        self.btn_sound_config.clicked.connect(self.open_sound_config)
-        sound_layout.addWidget(self.btn_sound_config)
-        layout.addLayout(sound_layout)
-
-        self.check_debug = QtWidgets.QCheckBox("DEBUG MODE")
-        self.check_debug.setChecked(False)
-        self.check_debug.setToolTip("Enables detailed logging. Saves screenshots of OCR warnings/failures and a copy of the game's EE.log for the run inside a 'DEBUG_INFO' folder.<br>Useful for troubleshooting.<br><b>Requires 'Track Log Data' to be enabled.</b>")
-        layout.addWidget(self.check_debug)
-
-        # FPS Checkbox
-        self.check_fps = QtWidgets.QCheckBox("Track FPS (Requires PresentMon.exe)")
-        self.check_fps.setChecked(False)
-        self.check_fps.setToolTip("Tracks Frames Per Second using PresentMon.exe.<br><b>Requires the tracker to be run as Administrator.</b>")
-        layout.addWidget(self.check_fps)
-
-        # Number Overlay
-        overlay_group = QtWidgets.QGroupBox("In-Game Overlay")
-        overlay_layout = QtWidgets.QHBoxLayout()
-        self.check_overlay = QtWidgets.QCheckBox("Enable Number Overlay")
-        self.check_overlay.setToolTip("Displays draggable, resizable numbers (CPM, KPM, etc.) over the game.")
-        self.check_overlay.toggled.connect(lambda c: self.btn_conf_overlay.setEnabled(c))
-        overlay_layout.addWidget(self.check_overlay)
-        
-        self.btn_conf_overlay = QtWidgets.QPushButton("Configure Colors/Metrics")
-        self.btn_conf_overlay.setEnabled(False)
-        self.btn_conf_overlay.clicked.connect(self.open_overlay_config)
-        overlay_layout.addWidget(self.btn_conf_overlay)
-        overlay_group.setLayout(overlay_layout)
-        layout.addWidget(overlay_group)
-
-        # Personal Best Selection
+        # Personal Best Selection (Moved from Overlay Tab)
         pb_group = QtWidgets.QGroupBox("Compare to Personal Best")
         pb_layout = QtWidgets.QVBoxLayout()
         
@@ -432,14 +376,117 @@ class SettingsDialog(QtWidgets.QDialog):
         pb_file_layout.addWidget(self.btn_clear_pb)
         pb_layout.addLayout(pb_file_layout)
 
-        self.check_pb_live = QtWidgets.QCheckBox("Animate PB Progress")
+        self.check_pb_live = AnimatedToggle("Animate PB Progress")
         self.check_pb_live.setChecked(True)
         self.check_pb_live.setToolTip("<b>Checked:</b> The Personal Best line on the graph will be drawn in real-time, growing along with your current run.<br><b>Unchecked:</b> The full PB line will be shown from the start.")
         pb_layout.addWidget(self.check_pb_live)
         
         pb_group.setLayout(pb_layout)
-        layout.addWidget(pb_group)
+        layout_track.addWidget(pb_group)
 
+        # FPS Checkbox
+        self.check_fps = AnimatedToggle("Track FPS (Requires PresentMon.exe)")
+        self.check_fps.setChecked(False)
+        self.check_fps.setToolTip("Tracks Frames Per Second using PresentMon.exe.<br><b>Requires the tracker to be run as Administrator.</b>")
+        layout_track.addWidget(self.check_fps)
+        
+        layout_track.addStretch()
+        self.tabs.addTab(tab_tracking, "Tracking")
+
+        # ================= TAB 3: ALERTS =================
+        tab_alerts = QtWidgets.QWidget()
+        layout_alerts = QtWidgets.QVBoxLayout(tab_alerts)
+
+        # Acolyte Warner (only available if log tracking is on)
+        acolyte_group = QtWidgets.QGroupBox("Acolyte Warner")
+        acolyte_layout = QtWidgets.QHBoxLayout()
+        self.check_acolyte = AnimatedToggle("Enable")
+        self.check_acolyte.setToolTip("Flashes a warning on-screen when an Acolyte taunt is detected in the log.<br>Requires 'Track Log Data' to be enabled.")
+        self.check_acolyte.toggled.connect(lambda c: self.btn_conf_acolyte.setEnabled(c))
+        acolyte_layout.addWidget(self.check_acolyte)
+        
+        self.btn_conf_acolyte = QtWidgets.QPushButton("Configure...")
+        self.btn_conf_acolyte.setEnabled(False)
+        self.btn_conf_acolyte.clicked.connect(self.open_acolyte_config)
+        acolyte_layout.addWidget(self.btn_conf_acolyte)
+        acolyte_group.setLayout(acolyte_layout)
+        layout_alerts.addWidget(acolyte_group)
+
+        # Effigy Warner (Moved under Log Tracking)
+        effigy_group = QtWidgets.QGroupBox("Effigy Warner")
+        effigy_layout = QtWidgets.QHBoxLayout()
+        self.check_effigy = AnimatedToggle("Enable")
+        self.check_effigy.setToolTip("Flashes a warning when the number of active allies drops below a threshold, which can indicate Chroma's Effigy has been destroyed.<br>Requires 'Track Log Data' to be enabled.")
+        self.check_effigy.toggled.connect(lambda c: self.btn_conf_effigy.setEnabled(c))
+        effigy_layout.addWidget(self.check_effigy)
+        
+        self.btn_conf_effigy = QtWidgets.QPushButton("Configure...")
+        self.btn_conf_effigy.setEnabled(False)
+        self.btn_conf_effigy.clicked.connect(self.open_effigy_config)
+        effigy_layout.addWidget(self.btn_conf_effigy)
+        effigy_group.setLayout(effigy_layout)
+        layout_alerts.addWidget(effigy_group)
+
+        # Sound
+        sound_group = QtWidgets.QGroupBox("Audio Alerts")
+        sound_layout = QtWidgets.QHBoxLayout()
+        self.check_sound = AnimatedToggle("Sound Alert on Scan")
+        self.check_sound.setChecked(False)
+        self.check_sound.setToolTip("Enables audio cues for events like successful/failed scans and warnings.<br>Click 'Configure Sounds...' to customize.")
+        sound_layout.addWidget(self.check_sound)
+        self.btn_sound_config = QtWidgets.QPushButton("Configure Sounds...")
+        self.btn_sound_config.clicked.connect(self.open_sound_config)
+        sound_layout.addWidget(self.btn_sound_config)
+        sound_group.setLayout(sound_layout)
+        layout_alerts.addWidget(sound_group)
+        
+        layout_alerts.addStretch()
+        self.tabs.addTab(tab_alerts, "Alerts")
+
+        # ================= TAB 4: OVERLAY =================
+        tab_overlay = QtWidgets.QWidget()
+        layout_overlay = QtWidgets.QVBoxLayout(tab_overlay)
+        
+        # Number Overlay
+        overlay_group = QtWidgets.QGroupBox("In-Game Overlay")
+        overlay_layout = QtWidgets.QHBoxLayout()
+        self.check_overlay = AnimatedToggle("Enable Number Overlay")
+        self.check_overlay.setToolTip("Displays draggable, resizable numbers (CPM, KPM, etc.) over the game.")
+        self.check_overlay.toggled.connect(lambda c: self.btn_conf_overlay.setEnabled(c))
+        overlay_layout.addWidget(self.check_overlay)
+        
+        self.btn_conf_overlay = QtWidgets.QPushButton("Configure Colors/Metrics")
+        self.btn_conf_overlay.setEnabled(False)
+        self.btn_conf_overlay.clicked.connect(self.open_overlay_config)
+        overlay_layout.addWidget(self.btn_conf_overlay)
+        overlay_group.setLayout(overlay_layout)
+        layout_overlay.addWidget(overlay_group)
+
+        layout_overlay.addStretch()
+        self.tabs.addTab(tab_overlay, "Overlay")
+
+        # ================= TAB 5: ADVANCED =================
+        tab_advanced = QtWidgets.QWidget()
+        layout_adv = QtWidgets.QVBoxLayout(tab_advanced)
+
+        # Scan Delay
+        layout_adv.addWidget(QtWidgets.QLabel("Scan Delay (sec) [Wait after Tab]:"))
+        self.spin_delay = QtWidgets.QDoubleSpinBox()
+        self.spin_delay.setRange(0.1, 2.0)
+        self.spin_delay.setSingleStep(0.1)
+        self.spin_delay.setValue(0.3)
+        self.spin_delay.setToolTip("How long to wait (in seconds) after you press TAB before taking a screenshot.<br>Increase if the UI takes longer to fade in.")
+        layout_adv.addWidget(self.spin_delay)
+
+        # Cooldown
+        layout_adv.addWidget(QtWidgets.QLabel("Cooldown (sec) [Min time between scans]:"))
+        self.spin_cooldown = QtWidgets.QDoubleSpinBox()
+        self.spin_cooldown.setRange(0.5, 10.0)
+        self.spin_cooldown.setSingleStep(0.5)
+        self.spin_cooldown.setValue(3.0)
+        self.spin_cooldown.setToolTip("The minimum time (in seconds) required between two consecutive TAB scans.<br>Prevents accidental double-scanning.")
+        layout_adv.addWidget(self.spin_cooldown)
+        
         # Data Recording Rate
         rec_row = QtWidgets.QWidget()
         rec_layout = QtWidgets.QHBoxLayout(rec_row)
@@ -452,13 +499,13 @@ class SettingsDialog(QtWidgets.QDialog):
         self.combo_rec_rate.addItem("Low Resource (1000ms)", 1000)
         self.combo_rec_rate.setToolTip("How often to sample data from the log reader and save a row to the master CSV.<br>• <b>Ultra/High:</b> Smoother live graphs, larger CSV files, higher RAM usage.<br>• <b>Balanced/Low:</b> Less resource intensive, smaller files, but graphs may appear less smooth.<br><i>Note: This only affects data from 'Track Log Data' and 'Track FPS'. OCR data is only recorded on TAB press.</i>")
         rec_layout.addWidget(self.combo_rec_rate)
-        layout.addWidget(rec_row)
+        layout_adv.addWidget(rec_row)
         
         # Log Update Rate Input
         self.log_rate_container = QtWidgets.QWidget()
         self.log_rate_container.setToolTip("Controls how frequently the live graphs are visually redrawn.<br>Lower values result in smoother-looking plots but use more CPU.<br>This is separate from the 'Data Recording Rate' which controls CSV data.")
         self.log_rate_layout = QtWidgets.QVBoxLayout(self.log_rate_container)
-        self.log_rate_layout.setContentsMargins(20, 0, 0, 0)
+        self.log_rate_layout.setContentsMargins(0, 0, 0, 0)
         
         # Explanation Label 1
         lbl_info1 = QtWidgets.QLabel("<b>Visual Update Settings:</b><br/>"
@@ -480,31 +527,44 @@ class SettingsDialog(QtWidgets.QDialog):
         rate_layout.addWidget(self.combo_log_rate)
         self.log_rate_layout.addWidget(rate_row)
 
-        layout.addWidget(self.log_rate_container)
+        layout_adv.addWidget(self.log_rate_container)
+        
+        self.check_debug = AnimatedToggle("DEBUG MODE")
+        self.check_debug.setChecked(False)
+        self.check_debug.setToolTip("Enables detailed logging. Saves screenshots of OCR warnings/failures and a copy of the game's EE.log for the run inside a 'DEBUG_INFO' folder.<br>Useful for troubleshooting.<br><b>Requires 'Track Log Data' to be enabled.</b>")
+        layout_adv.addWidget(self.check_debug)
+        
+        layout_adv.addStretch()
+        self.tabs.addTab(tab_advanced, "Advanced")
         
         self.check_logs.toggled.connect(self.update_rate_state)
         self.check_kills.toggled.connect(self.update_rate_state)
         self.check_credits.toggled.connect(self.update_rate_state)
         self.update_rate_state()
 
+        # --- Bottom Buttons ---
+        bottom_layout = QtWidgets.QVBoxLayout()
+        
         # Start Button
         self.btn_start = QtWidgets.QPushButton("Start Tracker")
         self.btn_start.clicked.connect(self.validate_and_accept)
-        layout.addWidget(self.btn_start)
+        self.btn_start.setMinimumHeight(40)
+        bottom_layout.addWidget(self.btn_start)
         
         # Add New Config Button
         self.btn_reconfig = QtWidgets.QPushButton("Refresh/Add New Bounding Box")
         self.btn_reconfig.setToolTip("Create a new configuration or edit the current one.")
         self.btn_reconfig.clicked.connect(self.handle_config_button)
-        layout.addWidget(self.btn_reconfig)
+        bottom_layout.addWidget(self.btn_reconfig)
 
         # Import Config Button
         self.btn_import = QtWidgets.QPushButton("Import Config from Previous Version")
         self.btn_import.setToolTip("Select the main folder of your previous version to import bounding boxes and settings.")
         self.btn_import.clicked.connect(self.import_old_config)
-        layout.addWidget(self.btn_import)
+        bottom_layout.addWidget(self.btn_import)
 
-        self.setLayout(layout)
+        main_layout.addLayout(bottom_layout)
+        self.setLayout(main_layout)
         
         # Start Update Check
         self.update_checker = UpdateChecker(self.version)
@@ -546,6 +606,31 @@ class SettingsDialog(QtWidgets.QDialog):
                         self.apply_settings(profiles[name])
             except Exception as e:
                 print(f"Error loading profile: {e}")
+
+    def save_current_profile(self):
+        name = self.combo_profiles.currentText()
+        if name == "Select a Profile...":
+            self.open_profile_manager() # Or prompt for new name
+            return
+        
+        # Confirm overwrite
+        reply = QtWidgets.QMessageBox.question(self, "Save Profile", f"Overwrite profile '{name}' with current settings?", QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        if reply == QtWidgets.QMessageBox.Yes:
+            current_settings = self.get_settings()
+            try:
+                profiles = {}
+                if os.path.exists(self.profiles_file):
+                    with open(self.profiles_file, 'r') as f:
+                        profiles = json.load(f)
+                
+                profiles[name] = current_settings
+                
+                with open(self.profiles_file, 'w') as f:
+                    json.dump(profiles, f, indent=4)
+                
+                QtWidgets.QMessageBox.information(self, "Success", f"Profile '{name}' updated.")
+            except Exception as e:
+                QtWidgets.QMessageBox.warning(self, "Error", f"Failed to save profile: {e}")
 
     def open_acolyte_config(self):
         dlg = AcolyteConfigDialog(self.acolyte_config, self)
@@ -679,8 +764,8 @@ class SettingsDialog(QtWidgets.QDialog):
             self.line_pb.setText(d)
 
     def validate_and_accept(self):
-        if not self.check_credits.isChecked() and not self.check_kills.isChecked():
-            QtWidgets.QMessageBox.warning(self, "Invalid Settings", "You must track at least Credits or Kills.")
+        if not self.check_credits.isChecked() and not self.check_kills.isChecked() and not self.check_logs.isChecked():
+            QtWidgets.QMessageBox.warning(self, "Invalid Settings", "You must track at least Credits, Kills, or Log Data.")
             return
 
         if self.check_fps.isChecked():

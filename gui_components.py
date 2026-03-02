@@ -19,6 +19,70 @@ class LargeNumberAxisItem(pg.AxisItem):
                 strings.append(f"{int(v)}")
         return strings
 
+class AnimatedToggle(QtWidgets.QCheckBox):
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self.setCursor(QtCore.Qt.PointingHandCursor)
+        self._bar_color = QtGui.QColor("#555")
+        self._handle_color = QtGui.QColor("#ddd")
+        self._checked_bar_color = QtGui.QColor("#2ea043")
+        self._checked_handle_color = QtGui.QColor("#fff")
+        
+        self._handle_position = 0.0
+        self._animation = QtCore.QPropertyAnimation(self, b"handle_position", self)
+        self._animation.setDuration(200)
+        self._animation.setEasingCurve(QtCore.QEasingCurve.InOutCubic)
+        
+        self.stateChanged.connect(self.setup_animation)
+
+    @QtCore.pyqtProperty(float)
+    def handle_position(self):
+        return self._handle_position
+
+    @handle_position.setter
+    def handle_position(self, pos):
+        self._handle_position = pos
+        self.update()
+
+    def setup_animation(self, state):
+        self._animation.stop()
+        if state == QtCore.Qt.Checked:
+            self._animation.setEndValue(1.0)
+        else:
+            self._animation.setEndValue(0.0)
+        self._animation.start()
+
+    def hitButton(self, pos: QtCore.QPoint):
+        return self.contentsRect().contains(pos)
+
+    def paintEvent(self, e: QtGui.QPaintEvent):
+        contRect = self.contentsRect()
+        handleRadius = 8
+        barHeight = 16
+        barWidth = 36
+        
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+
+        # Draw Bar
+        barRect = QtCore.QRectF(0, (contRect.height() - barHeight) / 2, barWidth, barHeight)
+        barColor = self._bar_color if not self.isChecked() else self._checked_bar_color
+        p.setPen(QtCore.Qt.NoPen)
+        p.setBrush(barColor)
+        p.drawRoundedRect(barRect, barHeight / 2, barHeight / 2)
+
+        # Draw Handle
+        xPos = barRect.x() + (barRect.width() - handleRadius*2) * self._handle_position
+        handleRect = QtCore.QRectF(xPos, barRect.center().y() - handleRadius, handleRadius*2, handleRadius*2)
+        p.setBrush(self._handle_color if not self.isChecked() else self._checked_handle_color)
+        p.drawEllipse(handleRect)
+
+        # Draw Text
+        p.setPen(self.palette().color(QtGui.QPalette.WindowText))
+        textRect = QtCore.QRect(contRect)
+        textRect.setLeft(barWidth + 10)
+        p.drawText(textRect, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, self.text())
+
 class OverlayWindow(QtWidgets.QWidget):
     def __init__(self, geometry, boxes):
         super().__init__()

@@ -28,25 +28,61 @@ if __name__ == "__main__":
 
     # --- Dark Theme Setup ---
     app.setStyle("Fusion")
-    dark_palette = QtGui.QPalette()
-    dark_bg = QtGui.QColor(45, 45, 45)
-    dark_input = QtGui.QColor(25, 25, 25)
-    text_color = QtGui.QColor(230, 230, 230)
     
-    dark_palette.setColor(QtGui.QPalette.Window, dark_bg)
-    dark_palette.setColor(QtGui.QPalette.WindowText, text_color)
-    dark_palette.setColor(QtGui.QPalette.Base, dark_input)
-    dark_palette.setColor(QtGui.QPalette.AlternateBase, dark_bg)
-    dark_palette.setColor(QtGui.QPalette.ToolTipBase, text_color)
-    dark_palette.setColor(QtGui.QPalette.ToolTipText, dark_input)
-    dark_palette.setColor(QtGui.QPalette.Text, text_color)
-    dark_palette.setColor(QtGui.QPalette.Button, dark_bg)
-    dark_palette.setColor(QtGui.QPalette.ButtonText, text_color)
-    dark_palette.setColor(QtGui.QPalette.BrightText, QtCore.Qt.red)
-    dark_palette.setColor(QtGui.QPalette.Link, QtGui.QColor(42, 130, 218))
-    dark_palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(42, 130, 218))
-    dark_palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.black)
-    app.setPalette(dark_palette)
+    # Modern Dark Stylesheet
+    app.setStyleSheet("""
+        QMainWindow, QDialog, QWidget {
+            background-color: #1e1e1e;
+            color: #f0f0f0;
+            font-family: "Segoe UI", "Arial", sans-serif;
+            font-size: 10pt;
+        }
+        QTabWidget::pane {
+            border: 1px solid #333333;
+            background: #252526;
+            border-radius: 5px;
+            margin-top: -1px;
+        }
+        QTabBar::tab {
+            background: #1e1e1e;
+            color: #888888;
+            padding: 8px 20px;
+            border-top-left-radius: 5px;
+            border-top-right-radius: 5px;
+            border: 1px solid transparent;
+        }
+        QTabBar::tab:selected {
+            background: #252526;
+            color: #ffffff;
+            border-bottom: 2px solid #2ea043;
+        }
+        QTabBar::tab:hover {
+            background: #2d2d2d;
+            color: #cccccc;
+        }
+        QPushButton {
+            background-color: #2ea043;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        QPushButton:hover { background-color: #3fb950; }
+        QPushButton:pressed { background-color: #238636; }
+        QPushButton:disabled { background-color: #333333; color: #888888; }
+        QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+            background-color: #333333; border: 1px solid #444444; border-radius: 4px; color: white; padding: 5px;
+        }
+        QGroupBox {
+            border: 1px solid #444444; border-radius: 5px; margin-top: 20px; font-weight: bold;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; color: #2ea043;
+        }
+        QListWidget { background-color: #252526; border: 1px solid #333333; border-radius: 4px; color: white; }
+        QScrollArea { border: none; background: transparent; }
+    """)
     
     pg.setConfigOption('background', '#191919')
     pg.setConfigOption('foreground', '#E6E6E6')
