@@ -11,20 +11,35 @@ This project is strictly a Quality of Life (QoL) and analytics tool.
 * **No Automation**: This tool does not use any macros, automated keystrokes, or botting to play the game or complete tasks for you.
 * **No Unfair Advantage**: It simply uses standard OCR (Optical Character Recognition) to read the screen and parses local log files to plot statistics, allowing players to analyze and improve their own performance.
 
-## Features
+## Digital Extremes Statement
+A user who was worried already asked DE Support about this Tool and sent me their answer;
+
+_The intention of the logs is to assist in diagnosing issues and not to be used as a source for developing third-party software. Even though we appreciate his attempt to improve the user experience through his overlay tool, we, unfortunately, don't support or endorse the development of any third party software with the concern of potentially violating the END USER LICENSE AGREEMENT._
+
+When he asked about Services like Overwolf or Alecaframe that are digging a lot more into Game files than i do (i just read EE.log) they answered with the following:
+
+_Unfortunately we won't be able to give you more information on that. Please be advised that Digital Extremes has no connections to apps like Overwolf or Alecaframe. We also do not recommend using these services due to the increased risk of your account getting suspended due to the usage._
+
+**This Tool is functionally less or equally risky as Alecaframe or Overwolf**
+Therefore:
+# USE AT YOUR OWN RISK
+but now:
+
+
+# Features!!!
 - **Live Overlay:** Draggable stats (Credits,CPM, current ammount of alive enemies, KPM, FPS) over the game.
 - **Real-time Graphs:** Visualizes your farming efficiency.
 - **OCR Tracking:** Reads credits/kills from the Mission Progress screen (Tab).
 - **Log Analysis (Real-time):** Reads `EE.log` to track:
     *   Live Enemy Count
-    *   Live KPM (as alternative to log reading)
+    *   Live KPM (as alternative to TAB reading (somewhat equally accurate))
     *   Total Enemies Spawned
-    *   Ally/Effigy Status
+    *   Ally/Effigy Status (alive or dead)
 - **FPS Tracker:** Uses PresentMon for an FPS plot.
-- **Live PB comparing:** Upload a run that will plot live along your data to see how much better/worse you perform.
+- **Live PB comparing:** Upload a run that will plot live along your data to see how much better/worse you perform. _You can also upload other peoples runs!_
 - **Acolyte Warner:** Flashes a warning on-screen when an Acolyte is about to spawn, showing its name and a countdown.
 - **Effigy Replace Warner** When Effigy dissapeares (dead or no energy) a warning will be flashed to replace it.
-- **Sound Alerts:** Customizable sounds (Beeps or MP3/WAV) for successful scans, failures, and warnings.
+- **Sound Alerts:** Customizable sounds (Windows Beeps or your MP3/WAV) for successful scans, failures, and warnings.
 - **Flexible Metrics:** Choose between **Cumulative** (Run Average) or **Rolling** (Current Pace) calculations for CPM and KPM.
 ---
 
@@ -70,15 +85,17 @@ For updating an existing installation without re-downloading the large Python en
 4. Run `apply_update.bat`.
 5. When prompted, drag and drop your main Lecta Tracker folder (the one with `Start_Tracker.bat`) into the command window and press Enter.
 6. Your scripts will be updated automatically, keeping all your settings safe.
+    - Note: when I release Version that include a new Python Library, you need to download the full release.
 
 ### Option 2: In-App Import (For full downloads)
+0. This is for when I release a version with new python packages so you can get your old configs and settings back
 1. Launch the new version of the tracker.
-2. In the Settings menu, click the **"Import Config from Previous Version"** button (at the bottom).
-3. Select the **Main Folder** of your previous version (the folder containing `Start_Tracker.bat`).
+2. In the GUI, click the **"Import Config from Previous Version"** button (at the bottom).
+3. Select the ``LECTA_SCRIPTS`` folder of your previous version.
 4. The tracker will automatically find and copy your bounding boxes, settings, and screenshots.
 
 ### Option 3: Manual Copy
-Copy all `.json` and `.png` files from your old `python_and_required_packages\LECTA_SCRIPTS` folder and paste them into the same location in the new version.
+Copy all `.json` and `.png` files from your old `LECTA_SCRIPTS` folder and paste them into the same location in the new version.
 
 ---
 
