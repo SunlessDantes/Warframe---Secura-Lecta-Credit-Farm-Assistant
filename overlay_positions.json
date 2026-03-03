@@ -1,42 +1,37 @@
 {
-    "Num alive": {
-        "x": 1216,
-        "y": 1132,
-        "font_size": 30
-    },
     "CPM": {
-        "x": 1494,
-        "y": 1032,
-        "font_size": 36
+        "x": 1084,
+        "y": 819,
+        "font_size": 24
     },
-    "KPM": {
-        "x": 1168,
-        "y": 888,
-        "font_size": 30
+    "KPM TAB": {
+        "x": 1344,
+        "y": 853,
+        "font_size": 24
+    },
+    "KPM LOG": {
+        "x": 1624,
+        "y": 803,
+        "font_size": 24
+    },
+    "Num alive": {
+        "x": 2024,
+        "y": 884,
+        "font_size": 24
     },
     "FPS": {
-        "x": 1266,
-        "y": 1066,
-        "font_size": 38
+        "x": 1972,
+        "y": 824,
+        "font_size": 24
     },
     "acolyte": {
-        "x": 937,
-        "y": 707,
+        "x": 1432,
+        "y": 970,
         "font_size": 48
     },
     "effigy": {
-        "x": 844,
-        "y": 498,
+        "x": 1196,
+        "y": 1172,
         "font_size": 48
-    },
-    "KPM TAB": {
-        "x": 1170,
-        "y": 883,
-        "font_size": 32
-    },
-    "KPM LOG": {
-        "x": 1533,
-        "y": 961,
-        "font_size": 32
     }
 }

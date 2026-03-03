@@ -13,8 +13,11 @@ set "SUB_DIR=python_and_required_packages"
 if exist "%SUB_DIR%\python.exe" (
     set "PYTHON_EXE=.\%SUB_DIR%\python.exe"
     
-    :: Check if scripts are in LECTA_SCRIPTS subfolder
-    if exist "%SUB_DIR%\LECTA_SCRIPTS\main.py" (
+    :: Check for scripts in root LECTA_SCRIPTS (New Structure)
+    if exist "LECTA_SCRIPTS\main.py" (
+        set "SCRIPT_DIR=.\LECTA_SCRIPTS"
+    ) else if exist "%SUB_DIR%\LECTA_SCRIPTS\main.py" (
+        :: Check subfolder (Old Structure / Dev Env)
         set "SCRIPT_DIR=.\%SUB_DIR%\LECTA_SCRIPTS"
     ) else (
         set "SCRIPT_DIR=.\%SUB_DIR%"
@@ -59,6 +62,8 @@ if exist "%SUB_DIR%\torch\lib" (
 ) else if exist "..\%SUB_DIR%\Lib\site-packages\torch\lib" (
     set "PATH=%~dp0..\%SUB_DIR%\Lib\site-packages\torch\lib;%PATH%"
 )
+
+
 
 :: --- First Time Setup Check ---
 if not exist "%SCRIPT_DIR%\bbox_config_solo.json" (

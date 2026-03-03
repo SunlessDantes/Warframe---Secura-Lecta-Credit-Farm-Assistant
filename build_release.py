@@ -43,12 +43,12 @@ def build_full_release(source_dir, project_root):
     # 2. Copy Embeddable Python Folder
     print("Copying Python environment (this may take a moment)...")
     embed_dst = os.path.join(release_dir, embed_folder_name)
-    shutil.copytree(embed_src, embed_dst)
+    # Ignore LECTA_SCRIPTS if it exists in source python folder to avoid duplication
+    shutil.copytree(embed_src, embed_dst, ignore=shutil.ignore_patterns("LECTA_SCRIPTS"))
 
     
-    # 3. Create LECTA_SCRIPTS inside the python folder
-    # This keeps the scripts separate from the python binaries
-    scripts_dst = os.path.join(embed_dst, "LECTA_SCRIPTS")
+    # 3. Create LECTA_SCRIPTS in the release root
+    scripts_dst = os.path.join(release_dir, "LECTA_SCRIPTS")
     os.makedirs(scripts_dst, exist_ok=True)
     
     # 4. Copy Scripts and Binaries from Source to LECTA_SCRIPTS
@@ -62,7 +62,8 @@ def build_full_release(source_dir, project_root):
         "tracker.py",
         "gui_components.py",
         "PresentMon.exe",
-        "requirements.txt"
+        "requirements.txt",
+        "Background.png", "Credits.png"
     ]
     script_files = sorted(list(set(script_files))) # Remove duplicates
     
@@ -123,7 +124,8 @@ def build_update_package(source_dir, project_root):
     script_files = [
         "main.py", "bounding_box_setup.py", "fps_tracker.py", "log_reader.py",
         "gui_components.py", "settings_dialog.py", "tracker.py",
-        "PresentMon.exe", "requirements.txt"
+        "PresentMon.exe", "requirements.txt",
+        "Background.png", "Credits.png"
     ]
     script_files = sorted(list(set(script_files)))
 
@@ -163,12 +165,12 @@ if not defined INSTALL_PATH (
     goto get_path
 )
 
-set "TARGET_DIR=%INSTALL_PATH%\python_and_required_packages\LECTA_SCRIPTS"
+set "TARGET_DIR=%INSTALL_PATH%\LECTA_SCRIPTS"
 
 if not exist "%TARGET_DIR%" (
     echo.
-    echo ERROR: Could not find the 'python_and_required_packages\LECTA_SCRIPTS' folder
-    echo inside the path you provided: %INSTALL_PATH%
+    echo ERROR: Could not find the 'LECTA_SCRIPTS' folder inside the path
+    echo you provided: %INSTALL_PATH%
     echo.
     echo Please make sure you are selecting the correct main installation folder
     echo (the one that contains 'Start_Tracker.bat').

@@ -2,17 +2,34 @@ import os
 import sys
 import ctypes
 
+# Fix for PyTorch DLL loading (WinError 1114) on systems with hybrid graphics
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+import easyocr
+# Ensure local modules in the same directory are found
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# --- CRITICAL: IMPORT PYQTGRAPH/PYQT5 AND INITIALIZE APP FIRST ---
+# This prevents conflicts with other libraries (like OpenCV from easyocr) 
+# that might ship with their own minimal Qt binaries. By importing and 
+# initializing QApplication first, we ensure that the correct Qt version is loaded.
+import pyqtgraph as pg
+from pyqtgraph.Qt import QtWidgets, QtCore, QtGui
+
+# Initialize QApplication EARLY.
+app = QtWidgets.QApplication.instance()
+if app is None:
+    QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling, True)
+    QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps, True)
+    app = QtWidgets.QApplication([])
+
+# --- Now import other heavy libraries ---
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
 pygame.init() # Initialize all imported pygame modules
 
-# Ensure local modules in the same directory are found
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 
 import easyocr
-
-import pyqtgraph as pg #pip install pyqtgraph and pip install pyQt5
-from pyqtgraph.Qt import QtWidgets, QtCore, QtGui
 from settings_dialog import SettingsDialog
 from tracker import WarframeTracker
 
@@ -20,13 +37,6 @@ from tracker import WarframeTracker
 # Main Execution
 # ==========================================
 if __name__ == "__main__":
-    # Initialize App first for the Dialog
-    app = QtWidgets.QApplication.instance()
-    if app is None:
-        QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling, True)
-        QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps, True)
-        app = QtWidgets.QApplication([])
-
     # Set Application Icon
     app_dir = os.path.dirname(os.path.abspath(__file__))
     icon_path = os.path.join(app_dir, "Credits.png")
@@ -41,17 +51,23 @@ if __name__ == "__main__":
     # --- Dark Theme Setup ---
     app.setStyle("Fusion")
     app.setStyleSheet("""
-        QMainWindow, QDialog, QWidget {
+        QComboBox QAbstractItemView {
+            background-color: #252526;
+            color: white;
+            selection-background-color: #2ea043;
+            border: 1px solid #444444;
+        }
+        QMainWindow, QDialog {
             background-color: #1e1e1e;
+        }
+        QWidget {
             color: #f0f0f0;
             font-family: "Segoe UI", "Arial", sans-serif;
             font-size: 10pt;
         }
-        QTabWidget::pane {
-            border: 1px solid #333333;
-            background: #252526;
-            border-radius: 5px;
-            margin-top: -1px;
+        QGraphicsView {
+            background: transparent;
+            border: none;
         }
         QTabBar::tab {
             background: #1e1e1e;
@@ -102,7 +118,7 @@ if __name__ == "__main__":
     dialog = SettingsDialog(version=APP_VERSION)
     if dialog.exec_() == QtWidgets.QDialog.Accepted:
         settings = dialog.get_settings()
-        tracker = WarframeTracker(settings)
+        tracker = WarframeTracker(settings, dialog_instance=dialog)
         
         print("\n========================================")
         print("   WARFRAME CPM Lecta Tracker")

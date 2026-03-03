@@ -123,7 +123,8 @@ class SettingsDialog(QtWidgets.QDialog):
     def __init__(self, version="Unknown"):
         super().__init__()
         self.setWindowTitle("Tracker Settings")
-        self.resize(600, 550)
+        self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowMinimizeButtonHint)
+        self.resize(740, 930)
         self.version = version
 
         # --- Background Image Setup ---
@@ -504,14 +505,14 @@ class SettingsDialog(QtWidgets.QDialog):
         # Background Opacity
         opacity_group = QtWidgets.QGroupBox("Window Background")
         opacity_layout = QtWidgets.QHBoxLayout()
-        opacity_layout.addWidget(QtWidgets.QLabel("Opacity:"))
-        self.slider_bg_opacity = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.slider_bg_opacity.setRange(0, 100)
-        self.slider_bg_opacity.setValue(100)
-        self.slider_bg_opacity.valueChanged.connect(lambda v: self.lbl_bg_opacity.setText(f"{v}%"))
-        opacity_layout.addWidget(self.slider_bg_opacity)
-        self.lbl_bg_opacity = QtWidgets.QLabel("100%")
-        opacity_layout.addWidget(self.lbl_bg_opacity)
+        self.check_transparent_graphs = QtWidgets.QCheckBox("Transparent Graphs")
+        self.check_transparent_graphs.setToolTip("If checked, the graph window background will be transparent during the run.\nIf unchecked, it will be a solid dark color.")
+        
+        # Initialize state (If previously < 99, assume they wanted transparency)
+        current_opacity = self.plot_config.get("background_opacity", 100)
+        self.check_transparent_graphs.setChecked(current_opacity < 99)
+        
+        opacity_layout.addWidget(self.check_transparent_graphs)
         opacity_group.setLayout(opacity_layout)
         layout_appear.addWidget(opacity_group)
 
@@ -669,7 +670,7 @@ class SettingsDialog(QtWidgets.QDialog):
 
         # Import Config Button
         self.btn_import = QtWidgets.QPushButton("Import Config from Previous Version")
-        self.btn_import.setToolTip("Select the main folder of your previous version to import bounding boxes and settings.")
+        self.btn_import.setToolTip("Select the 'LECTA_SCRIPTS' folder of your previous version to import bounding boxes and settings.")
         self.btn_import.clicked.connect(self.import_old_config)
         bottom_layout.addWidget(self.btn_import)
 
@@ -774,7 +775,7 @@ class SettingsDialog(QtWidgets.QDialog):
             self.sound_config = dlg.get_config()
 
     def import_old_config(self):
-        src_dir = QtWidgets.QFileDialog.getExistingDirectory(self, "Select Previous Version Folder")
+        src_dir = QtWidgets.QFileDialog.getExistingDirectory(self, "Select 'LECTA_SCRIPTS' Folder")
         if not src_dir:
             return
 
@@ -782,6 +783,7 @@ class SettingsDialog(QtWidgets.QDialog):
         candidates = [
             src_dir,
             os.path.join(src_dir, "python_and_required_packages", "LECTA_SCRIPTS"),
+            os.path.join(src_dir, "LECTA_SCRIPTS"),
             os.path.join(src_dir, "Source")
         ]
         
@@ -795,7 +797,7 @@ class SettingsDialog(QtWidgets.QDialog):
         if not real_src:
              QtWidgets.QMessageBox.warning(self, "Config Not Found", 
                                            "Could not find configuration files in the selected folder.\n"
-                                           "Tried looking in root and 'python_and_required_packages/LECTA_SCRIPTS'.")
+                                           "Please make sure you selected the 'LECTA_SCRIPTS' folder containing your .json config files.")
              return
 
         files_to_copy = [
@@ -804,7 +806,9 @@ class SettingsDialog(QtWidgets.QDialog):
             "last_run_settings.json",
             "path_config.json",
             "setup_screenshot_solo.png",
-            "setup_screenshot_duo.png"
+            "setup_screenshot_duo.png",
+            "profiles.json",
+            "overlay_positions.json"
         ]
         
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -950,7 +954,7 @@ class SettingsDialog(QtWidgets.QDialog):
             return "#FFFFFF"
 
         # Update plot_config from UI
-        self.plot_config["background_opacity"] = self.slider_bg_opacity.value()
+        self.plot_config["background_opacity"] = 0 if self.check_transparent_graphs.isChecked() else 100
         for key, (btn_line, btn_axis) in self.color_widgets.items():
             self.plot_config["plots"][key] = {
                 "line": get_color(btn_line),
@@ -1113,7 +1117,8 @@ class SettingsDialog(QtWidgets.QDialog):
 
         if "plot_config" in data:
             self.plot_config = data["plot_config"]
-            self.slider_bg_opacity.setValue(self.plot_config.get("background_opacity", 100))
+            op = self.plot_config.get("background_opacity", 100)
+            self.check_transparent_graphs.setChecked(op < 99)
             plots_cfg = self.plot_config.get("plots", {})
             for key, (btn_line, btn_axis) in self.color_widgets.items():
                 if key in plots_cfg:
@@ -1140,6 +1145,24 @@ class SettingsDialog(QtWidgets.QDialog):
         self.update_rate_state()
 
     def get_settings(self):
+        # Construct plot_config dynamically from UI elements
+        current_plot_config = {
+            "background_opacity": 0 if self.check_transparent_graphs.isChecked() else 100,
+            "plots": {}
+        }
+
+        def get_btn_color(btn):
+            style = btn.styleSheet()
+            if "background-color:" in style:
+                return style.split("background-color:")[1].split(";")[0].strip()
+            return "#FFFFFF"
+
+        for key, (btn_line, btn_axis) in self.color_widgets.items():
+            current_plot_config["plots"][key] = {
+                "line": get_btn_color(btn_line),
+                "axis": get_btn_color(btn_axis)
+            }
+
         return {
             "mode": "Solo" if self.radio_solo.isChecked() else "Duo",
             "scan_delay": self.spin_delay.value(),
@@ -1156,7 +1179,7 @@ class SettingsDialog(QtWidgets.QDialog):
             "use_sound": self.check_sound.isChecked(),
             "debug_mode": self.check_debug.isChecked(),
             "sound_config": self.sound_config,
-            "plot_config": self.plot_config,
+            "plot_config": current_plot_config,
             "track_logs": self.check_logs.isChecked(),
             "add_log_kpm_plot": self.check_add_log_kpm.isChecked(),
             "log_kpm_rolling": (self.combo_kpm_mode.currentIndex() == 1),

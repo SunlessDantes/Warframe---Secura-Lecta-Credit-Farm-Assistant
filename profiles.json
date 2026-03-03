@@ -268,5 +268,120 @@
         "output_path": "C:/Users/rapha/RL/Warframe_lecta/temp_run_data_from_source",
         "pb_file": "C:/Users/rapha/RL/Warframe_lecta/temp_run_data_from_source/2026-03-02 02-31-05/master_run_log.csv",
         "show_pb_live": true
+    },
+    "Solo dev test everything ig": {
+        "mode": "Solo",
+        "scan_delay": 0.3,
+        "cooldown": 3.0,
+        "track_credits": true,
+        "show_high_cpm": true,
+        "cpm_rolling": false,
+        "cpm_window": 300,
+        "track_kills": true,
+        "tab_kpm_rolling": false,
+        "tab_kpm_window": 300,
+        "effigy_warner_enabled": true,
+        "always_on_top": true,
+        "use_sound": true,
+        "debug_mode": true,
+        "sound_config": {
+            "scan_success": {
+                "type": "Custom Beep",
+                "freq": 1000,
+                "dur": 150,
+                "vol": 100
+            },
+            "scan_fail": {
+                "type": "Custom Beep",
+                "freq": 500,
+                "dur": 200,
+                "vol": 100
+            },
+            "acolyte": {
+                "type": "Custom Beep",
+                "freq": 1500,
+                "dur": 100,
+                "vol": 100
+            },
+            "effigy": {
+                "type": "Custom Beep",
+                "freq": 1500,
+                "dur": 100,
+                "vol": 100
+            }
+        },
+        "plot_config": {
+            "background_opacity": 9,
+            "plots": {
+                "cpm": {
+                    "line": "#FFFF00",
+                    "axis": "#ff6bd3"
+                },
+                "creds": {
+                    "line": "#00FF00",
+                    "axis": "#ff8a4f"
+                },
+                "kpm": {
+                    "line": "#FF0000",
+                    "axis": "#FFFFFF"
+                },
+                "log_kpm": {
+                    "line": "#FF00FF",
+                    "axis": "#ffef9c"
+                },
+                "live": {
+                    "line": "#00FFFF",
+                    "axis": "#ff6f79"
+                },
+                "fps": {
+                    "line": "#00FFFF",
+                    "axis": "#b3d5ff"
+                }
+            }
+        },
+        "track_logs": true,
+        "add_log_kpm_plot": true,
+        "log_kpm_rolling": false,
+        "log_kpm_window": 60,
+        "track_fps": true,
+        "use_overlay": true,
+        "overlay_config": {
+            "CPM": {
+                "show": true,
+                "color": "#FF0000"
+            },
+            "KPM TAB": {
+                "show": true,
+                "color": "#FF0000"
+            },
+            "KPM LOG": {
+                "show": true,
+                "color": "#FF0000"
+            },
+            "Num alive": {
+                "show": true,
+                "color": "#FF0000"
+            },
+            "FPS": {
+                "show": true,
+                "color": "#FF0000"
+            }
+        },
+        "acolyte_warner_enabled": true,
+        "acolyte_config": {
+            "audio_cue": true,
+            "color": "#FF0000",
+            "opacity": 50
+        },
+        "effigy_config": {
+            "audio_cue": true,
+            "color": "#0000FF",
+            "opacity": 50
+        },
+        "data_recording_rate": 25,
+        "log_update_rate": 0.1,
+        "output_path": "C:/Users/rapha/RL/Warframe_lecta/temp_run_data_from_source",
+        "pb_file": "",
+        "show_pb_live": true
     }
 }
